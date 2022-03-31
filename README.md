@@ -13,7 +13,8 @@ Features:
 - just copy the link from the address bar - it is a permanent link to the data;
 - you can edit already saved data but the new link will be created and the old links remain permanent;
 - you can host Markdown pages - just add .md to the URL and share it;
-- you can host HTML pages - just add .html to the URL and share it;
+- you can host HTML pages - just add .html to the URL and share it
+  this is very insecure, see "open redirect";
 - browser history is used while editing for easy undo;
 - edit history is also saved in the database: after you load the data,
   previous version of the data is available by clicking the "back" button in bottom right corner;
