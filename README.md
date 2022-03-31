@@ -51,8 +51,7 @@ This service does not use cookies.
 
 ## Report Abuse
 
-To report abuse, write to feedback@clickhouse.com
-DMCA violations should be reported as well.
+To report abuse, write to feedback@clickhouse.com. DMCA violations should be reported as well.
 
 ## Installation
 
