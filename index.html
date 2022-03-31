@@ -36,6 +36,15 @@
             display: none;
         }
 
+        #about {
+            position: absolute;
+            right: 1em;
+            top: 0.5em;
+            z-index: 1;
+            font-family: sans-serif;
+            background: #FFF;
+        }
+
         #hourglass {
             color: gray;
             animation: spin 2s infinite;
@@ -54,6 +63,11 @@
             font-weight: bold;
         }
 
+        a, a:visited {
+            text-decoration: none;
+            color: #08F;
+        }
+
         a:hover {
             color: #00b3ee;
         }
@@ -66,6 +80,7 @@
     </style>
 </head>
 <body>
+<a id="about" href="https://github.com/ClickHouse/pastila">About</a>
 <span class="status" id="hourglass">⧗</span>
 <span class="status" id="check-mark">✔</span>
 <span class="status" id="error">❌</span>
