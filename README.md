@@ -4,6 +4,8 @@ https://pastila.nl/
 
 ## About
 
+[Read the blog post](https://clickhouse.com/blog/building-a-paste-service-with-clickhouse/).
+
 This service is developed to demonstrate some features of ClickHouse
 like asynchronous INSERTs, direct querying from HTML page, MATERIALIZED and EPHEMERAL columns,
 CONSTRAINTS, custom HTTP handlers, quotas and user access control, etc.
