@@ -91,14 +91,14 @@ ENGINE = ReplicatedMergeTree;
 CREATE USER paste IDENTIFIED WITH no_password
 DEFAULT DATABASE paste
 SETTINGS
-    add_http_cors_header = 1,
-    async_insert = 1,
-    wait_for_async_insert = 0,
-    limit = 1,
-    offset = 0,
-    max_result_rows = 1,
-    force_primary_key = 1,
-    max_query_size = '10M';
+    add_http_cors_header = 1 READONLY,
+    async_insert = 1 READONLY,
+    wait_for_async_insert = 0 READONLY,
+    limit = 1 READONLY,
+    offset = 0 READONLY,
+    max_result_rows = 1 READONLY,
+    force_primary_key = 1 READONLY,
+    max_query_size = '10M' READONLY;
 
 CREATE QUOTA paste
 KEYED BY ip_address
