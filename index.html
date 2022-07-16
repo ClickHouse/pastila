@@ -8,7 +8,7 @@
     <link id="icon" rel="icon" href="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=">
     <title>Paste</title>
     <style>
-        html, body, textarea {
+        html, body, textarea, .container {
             width: 100%;
             height: 100%;
             margin: 0;
@@ -19,15 +19,56 @@
             font-family: sans-serif;
         }
 
-        pre, code, textarea {
+        pre, code, .container, textarea {
             font-family: ui-monospace, SFMono-Regular, SF Mono,Menlo, Consolas, Liberation Mono, monospace;
         }
+        .container {
+            padding: 0.5em;
+            display: inline-block;
+            position: relative;
+            overflow: hidden !important;
+            -webkit-text-size-adjust: none !important;
+        }
 
-        textarea {
+        .backdrop {
+            position: absolute;
+        }
+
+        textarea, #highlights {
+            white-space: pre-wrap;
+            margin: 0;
+            padding: 0;
+            background-color: transparent;
+            position: relative;
             outline: none;
             border: none;
+            border-radius: 0;
+        }
+
+        .backdrop {
+            position: absolute !important;
             padding: 0.5em;
-            white-space: pre-wrap;
+            top: 0 !important;
+            bottom: 0 !important;
+            left: 0 !important;
+            right: -99px !important;
+            padding-right: 99px !important;
+            overflow-x: hidden !important;
+            overflow-y: auto !important;
+        }
+        .highlights {
+            width: auto !important;
+            height: auto !important;
+            border-color: transparent !important;
+            white-space: pre-wrap !important;
+            word-wrap: break-word !important;
+            color: transparent !important;
+            overflow: hidden !important;
+        }
+        mark {
+            background-color: #d4e9ab; /* or whatever */
+            padding: 0 !important;
+            color: inherit;
         }
 
         .status {
@@ -89,7 +130,15 @@
 <span class="status" id="check-mark">✔</span>
 <span class="status" id="error">❌</span>
 <a class="status" id="back">⎌</a>
-<textarea id="data" spellcheck="false" autofocus></textarea>
+
+<div class="container">
+  <div class="backdrop" id="backdrop">
+    <div class="highlights" id="highlights">
+    </div>
+  </div>
+  <textarea id="data" spellcheck="false" autofocus></textarea>
+</div>
+
 <script type="text/javascript">
 
 const clickhouse_url = "https://play.clickhouse.com/?user=paste";
@@ -229,6 +278,7 @@ async function load(fingerprint, hash, type) {
         }
     }
 
+    highlightConfigure();
     setFavicon();
 }
 
@@ -372,11 +422,84 @@ function setFavicon() {
     document.getElementById("icon").href = canvas.toDataURL();
 }
 
+/* Highlightion */
+function escapeHtml(unsafe)
+{
+    // this keeps scrolling aligned when input ends with a newline
+    if (unsafe.endsWith('\n'))
+        unsafe += ' ';
+    return unsafe
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;');
+}
+function highlightOnResize() {
+    let backdrop = document.getElementById('backdrop');
+    let styles = window.getComputedStyle(data);
+    backdrop.style['height'] = styles['height'];
+    backdrop.style['width'] = styles['width'];
+}
+function highlightConfigure() {
+    let data = document.getElementById('data');
+
+    data.addEventListener('input', highlightOnInput);
+    data.addEventListener('scroll', highlightOnScroll);
+    data.addEventListener('resize', highlightOnResize);
+    window.onresize = highlightOnResize;
+
+    let backdrop = document.getElementById('backdrop');
+    let styles = window.getComputedStyle(data);
+    backdrop.style['font-size'] = styles['font-size'];
+    highlightOnResize();
+
+    document.onmouseup = document.onkeyup = document.onselectionchange = function() {
+        highlightOnSelect();
+    };
+
+    // Init
+    highlightOnInput();
+}
+function highlightOnInput()
+{
+    let data = document.getElementById('data');
+    let text = data.value;
+    document.getElementById('highlights').innerHTML = escapeHtml(text);
+}
+function highlightOnScroll() {
+    let data = document.getElementById('data');
+    let backdrop = document.getElementById('backdrop');
+
+    backdrop.scroll(0, data.scrollTop);
+}
+function highlightOnSelect(text) {
+    let element = document.activeElement;
+    if (!element) {
+        return;
+    }
+
+    if (element.tagName.toLowerCase() != "textarea") {
+        return;
+    }
+
+    let highlights = document.getElementById('highlights');
+
+    let selected_text = element.value.slice(element.selectionStart, element.selectionEnd);
+    if (!selected_text) {
+        highlights.innerHTML = element.value;
+        return;
+    }
+
+    selected_text = escapeHtml(selected_text);
+    highligted_text = escapeHtml(element.value).replaceAll(selected_text, '<mark>' + selected_text + '</mark>');
+    highlights.innerHTML = highligted_text;
+
+    highlightOnScroll();
+}
+
+restore();
+
 window.onpopstate = function(event) {
     restore();
 };
-
-restore();
 
 </script>
 </body>
