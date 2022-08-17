@@ -22,6 +22,8 @@ Features:
 - browser history is used while editing for easy undo;
 - edit history is also saved in the database: after you load the data,
   previous version of the data is available by clicking the "back" button in bottom right corner;
+- Added Encryption option to encrypt data in browser before inserting into ClickHouse database,
+  encryption key is kept in anchor tag which never leaves the user's browser.
 
 ## Motivation
 
