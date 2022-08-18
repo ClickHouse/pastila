@@ -122,6 +122,7 @@
 <a class="about" href="https://github.com/ClickHouse/pastila">About</a>
 <div class="encryption">
     <input id="encryption" checked=true type="checkbox">AES Encryption</input> 
+    <input id="passwordfield" type="password" placeholder="password"></input> 
 </div>
 <span class="status" id="hourglass">⧗</span>
 <span class="status" id="check-mark">✔</span>
@@ -214,6 +215,7 @@ let error = document.getElementById('error');
 let wait = document.getElementById('hourglass');
 let encryption = document.getElementById('encryption');
 
+
 function hide() {
     back.style.display = 'none';
     check.style.display = 'none';
@@ -253,11 +255,12 @@ function base64ToBytes(base64) {
 
 async function decrypt(content){
     try {
+        let userpassword = passwordfield.value;
         if (anchorkey == '') {
             throw "No key was found - cannot decrypt";
         }
         let encryptedbytes=base64ToBytes(content.substr(4));
-        const encodedkey = new TextEncoder('utf8').encode(anchorkey);
+        const encodedkey = new TextEncoder('utf8').encode(userpassword+anchorkey);
         pbkdf2_keymaterials = await window.crypto.subtle.importKey("raw", encodedkey, {name: "PBKDF2"}, false, ["deriveBits"]);
         const salt = encryptedbytes.slice(8, 16);
         let pbkdf2keybytes = await window.crypto.subtle.deriveBits({ "name": 'PBKDF2', "salt": salt, "iterations": 1000, "hash": 'SHA-256' }, pbkdf2_keymaterials, 384);
@@ -278,11 +281,12 @@ async function decrypt(content){
 
 async function encrypt(content){
     try {
+        let userpassword = passwordfield.value;
         if (anchorkey == '') {
             anchorkey=([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>(c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
         }
         let plaintextbytes = new TextEncoder("utf-8").encode(content);
-        const encodedkey = new TextEncoder('utf8').encode(anchorkey);
+        const encodedkey = new TextEncoder('utf8').encode(userpassword+anchorkey);
         pbkdf2_keymaterials = await window.crypto.subtle.importKey("raw", encodedkey, {name: "PBKDF2"}, false, ["deriveBits"]);
         salt = window.crypto.getRandomValues(new Uint8Array(8));
         let pbkdf2keybytes = await window.crypto.subtle.deriveBits({ "name": 'PBKDF2', "salt": salt, "iterations": 1000, "hash": 'SHA-256' }, pbkdf2_keymaterials, 384);
@@ -375,6 +379,8 @@ async function load(fingerprint, hash, type) {
 
     setFavicon();
 }
+
+document.getElementById('passwordfield').addEventListener('input', (event) => restore());
 
 async function save(text) {
     const my_request_num = ++request_num;
