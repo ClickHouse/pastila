@@ -121,7 +121,7 @@
 <body>
 <a class="about" href="https://github.com/ClickHouse/pastila">About</a>
 <div class="encryption">
-<input id="encryption"  type="checkbox">AES Encryption</a>
+    <input id="encryption" checked=true type="checkbox">AES Encryption</input> 
 </div>
 <span class="status" id="hourglass">⧗</span>
 <span class="status" id="check-mark">✔</span>
@@ -254,25 +254,25 @@ function base64ToBytes(base64) {
 async function decrypt(content){
     try {
         if (anchorkey == '') {
-            throw "No key was found - cannot decrypt"
+            throw "No key was found - cannot decrypt";
         }
-        let encryptedbytes=base64ToBytes(content.substr(4))
-        const encodedkey = new TextEncoder('utf8').encode(anchorkey)
+        let encryptedbytes=base64ToBytes(content.substr(4));
+        const encodedkey = new TextEncoder('utf8').encode(anchorkey);
         pbkdf2_keymaterials = await window.crypto.subtle.importKey("raw", encodedkey, {name: "PBKDF2"}, false, ["deriveBits"]);
         const salt = encryptedbytes.slice(8, 16);
-        let pbkdf2keybytes = await window.crypto.subtle.deriveBits({ "name": 'PBKDF2', "salt": salt, "iterations": 1000, "hash": 'SHA-256' }, pbkdf2_keymaterials, 384)
+        let pbkdf2keybytes = await window.crypto.subtle.deriveBits({ "name": 'PBKDF2', "salt": salt, "iterations": 1000, "hash": 'SHA-256' }, pbkdf2_keymaterials, 384);
         pbkdf2keybytes = new Uint8Array(pbkdf2keybytes);
         const keybytes = pbkdf2keybytes.slice(0, 32);
         const iv = pbkdf2keybytes.slice(32);
         encryptedbytes = encryptedbytes.slice(16);
-        const aeskey = await window.crypto.subtle.importKey('raw', keybytes, { name: 'AES-CBC', length: 256 }, false, ['decrypt'])
-        let plaintextbytes = await window.crypto.subtle.decrypt({ name: "AES-CBC", iv: iv }, aeskey, encryptedbytes)
-        const result = new TextDecoder("utf-8").decode(plaintextbytes)
-        return result
+        const aeskey = await window.crypto.subtle.importKey('raw', keybytes, { name: 'AES-CBC', length: 256 }, false, ['decrypt']);
+        let plaintextbytes = await window.crypto.subtle.decrypt({ name: "AES-CBC", iv: iv }, aeskey, encryptedbytes);
+        const result = new TextDecoder("utf-8").decode(plaintextbytes);
+        return result;
     } catch(e) {
-        console.log("Fail to decrypt - return content as is")
-        console.log(e)
-        return content
+        console.log("Fail to decrypt - return content as is");
+        console.log(e);
+        return "";
     }
 }
 
@@ -281,28 +281,28 @@ async function encrypt(content){
         if (anchorkey == '') {
             anchorkey=([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>(c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
         }
-        let plaintextbytes = new TextEncoder("utf-8").encode(content)
-        const encodedkey = new TextEncoder('utf8').encode(anchorkey)
+        let plaintextbytes = new TextEncoder("utf-8").encode(content);
+        const encodedkey = new TextEncoder('utf8').encode(anchorkey);
         pbkdf2_keymaterials = await window.crypto.subtle.importKey("raw", encodedkey, {name: "PBKDF2"}, false, ["deriveBits"]);
         salt = window.crypto.getRandomValues(new Uint8Array(8));
-        let pbkdf2keybytes = await window.crypto.subtle.deriveBits({ "name": 'PBKDF2', "salt": salt, "iterations": 1000, "hash": 'SHA-256' }, pbkdf2_keymaterials, 384)
+        let pbkdf2keybytes = await window.crypto.subtle.deriveBits({ "name": 'PBKDF2', "salt": salt, "iterations": 1000, "hash": 'SHA-256' }, pbkdf2_keymaterials, 384);
         pbkdf2keybytes = new Uint8Array(pbkdf2keybytes);
         const keybytes = pbkdf2keybytes.slice(0, 32);
         const iv = pbkdf2keybytes.slice(32);
-        const aeskey = await window.crypto.subtle.importKey('raw', keybytes, { name: 'AES-CBC', length: 256 }, false, ['encrypt'])
-        let encryptedbytes = await window.crypto.subtle.encrypt({ name: "AES-CBC", iv: iv }, aeskey, plaintextbytes)
+        const aeskey = await window.crypto.subtle.importKey('raw', keybytes, { name: 'AES-CBC', length: 256 }, false, ['encrypt']);
+        let encryptedbytes = await window.crypto.subtle.encrypt({ name: "AES-CBC", iv: iv }, aeskey, plaintextbytes);
         encryptedbytes = new Uint8Array(encryptedbytes);
-        let resultbytes = new Uint8Array(encryptedbytes.length + 16)
+        let resultbytes = new Uint8Array(encryptedbytes.length + 16);
         resultbytes.set(new TextEncoder("utf-8").encode('Salted__'));
         resultbytes.set(salt, 8);
         resultbytes.set(encryptedbytes, 16);
-        result = "Enc="+bytesToBase64(resultbytes)
-        return result
+        result = "Enc="+bytesToBase64(resultbytes);
+        return result;
 
     } catch (e) {
-        alert("Fail to encrypt - File not sent")
+        alert("Fail to encrypt - File not sent");
         console.error(e);
-        return ""
+        return "";
     }
 
 }
@@ -333,14 +333,13 @@ async function load(fingerprint, hash, type) {
     curr_fingerprint = fingerprint;
 
     if (content.startsWith("Enc=")) {
-        encryption.checked = true
-        decryptedcontent=await decrypt(content)
-        if (content === decryptedcontent) {
+        encryption.checked = true;
+        encryption.setAttribute('disabled','')
+        content = await decrypt(content);
+        if (content === "") {
             document.getElementById('data').value = "Fail to decrypt content - Do you have the key?";
-            return
-        } else {
-            content = decryptedcontent
-        }
+            return;
+        } 
     }
 
     if (type === '.html' || type == '.htm') {
@@ -442,7 +441,7 @@ function loadQRRenderer() {
         'sha512-PEhlWBZBrQL7flpJPY8lXx8tIN7HWX912GzGhFTDqA3iWFrakVH3lVHomCoU9BhfKzgxfEk6EG2C3xej+9srOQ==');
 }
 
-async function encryptdata(event){
+async function savedata(event){
     prev_fingerprint = curr_fingerprint;
     prev_hash = curr_hash
 
@@ -450,8 +449,8 @@ async function encryptdata(event){
     if (encryption.checked == true) {
         text = await encrypt(text)
         if (text === ''){
-            console.log("Fail to encrypt")
-            return
+            console.log("Fail to encrypt");
+            return;
         }
     }
 
@@ -461,7 +460,7 @@ async function encryptdata(event){
     save(text);
 }
 
-document.getElementById('data').addEventListener('input', (event) => encryptdata(event));
+document.getElementById('data').addEventListener('input', (event) => savedata(event));
 
 back.addEventListener('click', (event) => {
     load(prev_fingerprint, prev_hash);
