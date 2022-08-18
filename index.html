@@ -214,7 +214,9 @@ let check = document.getElementById('check-mark');
 let error = document.getElementById('error');
 let wait = document.getElementById('hourglass');
 let encryption = document.getElementById('encryption');
-
+let passwordfield = document.getElementById('passwordfield');
+passwordfield.addEventListener("mouseover",()=>{event.target.type = 'text'});
+passwordfield.addEventListener("mouseout",()=>{event.target.type = 'password'});
 
 function hide() {
     back.style.display = 'none';
@@ -338,7 +340,7 @@ async function load(fingerprint, hash, type) {
 
     if (content.startsWith("Enc=")) {
         encryption.checked = true;
-        encryption.setAttribute('disabled','')
+        encryption.setAttribute('disabled','');
         content = await decrypt(content);
         if (content === "") {
             document.getElementById('data').value = "Fail to decrypt content - Do you have the key?";
@@ -380,7 +382,7 @@ async function load(fingerprint, hash, type) {
     setFavicon();
 }
 
-document.getElementById('passwordfield').addEventListener('input', (event) => restore());
+passwordfield.addEventListener('input', (event) => restore());
 
 async function save(text) {
     const my_request_num = ++request_num;
@@ -458,6 +460,8 @@ async function savedata(event){
             console.log("Fail to encrypt");
             return;
         }
+        encryption.setAttribute('disabled','');
+        passwordfield.setAttribute('disabled','');
     }
 
     curr_hash = sipHash128(encoder.encode(text));
