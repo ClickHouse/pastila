@@ -347,7 +347,12 @@ async function load(fingerprint, hash, type) {
     setFavicon();
 }
 
-passwordfield.addEventListener('input', (event) => restore());
+passwordfield.addEventListener('keyup', (event) => {
+    if (event.key === 'Enter' || event.keyCode === 13) 
+        restore()
+    });
+
+passwordfield.addEventListener('focusout', (event) =>restore());
 
 async function save(text) {
     const my_request_num = ++request_num;
