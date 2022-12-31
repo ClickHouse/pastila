@@ -229,6 +229,8 @@ async function load(fingerprint, hash, type) {
         await loadMarkdownRenderer();
         document.body.className = 'markdown';
         document.body.innerHTML = marked.parse(content);
+    } else if (type === '.link') {
+        window.location.href = content;
     } else {
         document.getElementById('data').value = content;
 
@@ -317,7 +319,7 @@ back.addEventListener('click', (event) => {
 });
 
 function restore() {
-    const components = window.location.search.match(/^\?([0-9a-f]{8})\/([0-9a-f]{32})(\.md|\.markdown|\.html?)?/);
+    const components = window.location.search.match(/^\?([0-9a-f]{8})\/([0-9a-f]{32})(\.md|\.markdown|\.html?|\.link)?/);
     if (components) load(components[1], components[2], components[3]);
 }
 
