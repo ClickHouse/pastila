@@ -100,7 +100,7 @@
 <a class="about" href="https://github.com/ClickHouse/pastila">About</a>
 <div class="encryption">
     <input id="encryption" checked=true type="checkbox">AES Encryption</input> 
-    <input id="passwordfield" type="password" placeholder="password"></input> 
+    <input id="passwordfield" type="password" placeholder="password" style="display:none"></input> 
 </div>
 <span class="status" id="hourglass">⧗</span>
 <span class="status" id="check-mark">✔</span>
@@ -239,7 +239,7 @@ async function decrypt(content){
         if (anchorkey == '') {
             throw "No key was found - cannot decrypt";
         }
-        let encryptedbytes=base64ToBytes(content.substr(4));
+        let encryptedbytes=base64ToBytes(content);
         const encodedkey = new TextEncoder('utf8').encode(userpassword+anchorkey);
         pbkdf2_keymaterials = await window.crypto.subtle.importKey("raw", encodedkey, {name: "PBKDF2"}, false, ["deriveBits"]);
         const salt = encryptedbytes.slice(8, 16);
@@ -280,7 +280,7 @@ async function encrypt(content){
         resultbytes.set(new TextEncoder("utf-8").encode('Salted__'));
         resultbytes.set(salt, 8);
         resultbytes.set(encryptedbytes, 16);
-        result = "Enc="+bytesToBase64(resultbytes);
+        result = bytesToBase64(resultbytes);
         return result;
 
     } catch (e) {
@@ -296,7 +296,7 @@ async function load(fingerprint, hash, type) {
 
     const response = await fetch(
         clickhouse_url,
-        { method: "POST", body: `SELECT content, lower(hex(reinterpretAsFixedString(prev_hash))) AS prev_hash, lower(hex(reinterpretAsFixedString(prev_fingerprint))) AS prev_fingerprint FROM data WHERE fingerprint = reinterpretAsUInt32(unhex('${fingerprint}')) AND hash = reinterpretAsUInt128(unhex('${hash}')) ORDER BY time LIMIT 1 FORMAT JSON` });
+        { method: "POST", body: `SELECT content, is_encrypted, lower(hex(reinterpretAsFixedString(prev_hash))) AS prev_hash, lower(hex(reinterpretAsFixedString(prev_fingerprint))) AS prev_fingerprint FROM data WHERE fingerprint = reinterpretAsUInt32(unhex('${fingerprint}')) AND hash = reinterpretAsUInt128(unhex('${hash}')) ORDER BY time LIMIT 1 FORMAT JSON` });
 
     function onError() {
         show(error);
@@ -309,6 +309,7 @@ async function load(fingerprint, hash, type) {
 
     const result = json.data[0];
     let content = result.content;
+    const is_encrypted = result.is_encrypted;
 
     prev_hash = result.prev_hash;
     prev_fingerprint = result.prev_fingerprint;
@@ -316,7 +317,7 @@ async function load(fingerprint, hash, type) {
     curr_hash = hash;
     curr_fingerprint = fingerprint;
 
-    if (content.startsWith("Enc=")) {
+    if (is_encrypted) {
         encryption.checked = true;
         encryption.setAttribute('disabled','');
         content = await decrypt(content);
@@ -354,7 +355,7 @@ passwordfield.addEventListener('keyup', (event) => {
 
 passwordfield.addEventListener('focusout', (event) =>restore());
 
-async function save(text) {
+async function save(text, is_encrypted) {
     const my_request_num = ++request_num;
 
     show(wait);
@@ -363,13 +364,14 @@ async function save(text) {
         clickhouse_url,
         {
             method: "POST",
-            body: "INSERT INTO data (fingerprint_hex, hash_hex, prev_fingerprint_hex, prev_hash_hex, content) FORMAT JSONEachRow " + JSON.stringify(
+            body: "INSERT INTO data (fingerprint_hex, hash_hex, prev_fingerprint_hex, prev_hash_hex, content, is_encrypted) FORMAT JSONEachRow " + JSON.stringify(
             {
                 fingerprint_hex: curr_fingerprint,
                 hash_hex: curr_hash,
                 prev_fingerprint_hex: prev_fingerprint,
                 prev_hash_hex: prev_hash,
-                content: text
+                content: text,
+                is_encrypted: is_encrypted
             })
         });
 
@@ -412,10 +414,12 @@ function loadMarkdownRenderer() {
 
 async function savedata(event){
     prev_fingerprint = curr_fingerprint;
-    prev_hash = curr_hash
+    prev_hash = curr_hash;
+    is_encrypted = false;
 
     let text = document.getElementById('data').value;
     if (encryption.checked == true) {
+        is_encrypted=true;
         text = await encrypt(text)
         if (text === ''){
             console.log("Fail to encrypt");
@@ -428,7 +432,7 @@ async function savedata(event){
     curr_hash = sipHash128(encoder.encode(text));
     curr_fingerprint = getFingerprint(text);
 
-    save(text);
+    save(text, is_encrypted);
 }
 
 document.getElementById('data').addEventListener('input', (event) => savedata(event));
