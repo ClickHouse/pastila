@@ -240,9 +240,15 @@ async function load(fingerprint, hash, type) {
         window.location.href = content;
     } else if (type === '.png') {
         await loadQRRenderer();
+        let qr_data;
+        try {
+            qr_data = await QRCode.toDataURL(content);
+        } catch (e) {
+            show(error);
+            throw e;
+        }
         document.body.className = 'qrcode';
-        let qr_data = await QRCode.toDataURL(content);
-        document.body.innerHTML = `<img src = "${qr_data}">`;
+        document.body.innerHTML = `<img src="${qr_data}">`;
     } else {
         document.getElementById('data').value = content;
 
