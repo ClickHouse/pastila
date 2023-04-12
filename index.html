@@ -87,6 +87,7 @@
             align-items: center;
             justify-content: center;
             height: 100vh;
+            width: 100vw;
         }
 
         @media (prefers-color-scheme: dark) {
@@ -242,7 +243,7 @@ async function load(fingerprint, hash, type) {
         await loadQRRenderer();
         let qr_data;
         try {
-            qr_data = await QRCode.toDataURL(content);
+            qr_data = await QRCode.toDataURL(content, { width: Math.min(document.body.clientHeight, document.body.clientWidth) / 2 });
         } catch (e) {
             show(error);
             throw e;
