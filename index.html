@@ -339,7 +339,7 @@ async function save() {
 
     is_encrypted = encryption.checked;
     if (is_encrypted) {
-        const key_bytes = crypto.getRandomValues(new Uint8Array(32));
+        const key_bytes = crypto.getRandomValues(new Uint8Array(16));
         text = await encrypt(text, key_bytes);
         anchor = '#' + bytesToBase64(key_bytes);
         encryption.setAttribute('disabled', '');
