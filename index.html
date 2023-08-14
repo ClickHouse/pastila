@@ -29,6 +29,10 @@
         }
 
         textarea {
+            height: calc(100% - 2em);
+        }
+
+        textarea {
             outline: none;
             border: none;
             padding: 0.5em;
@@ -124,7 +128,7 @@
 <span class="status" id="check-mark">✔</span>
 <span class="status" id="error">❌</span>
 <a class="status" id="back">⎌</a>
-<textarea id="data" class="data" spellcheck="false" autofocus></textarea>
+<textarea id="data" spellcheck="false" autofocus></textarea>
 <script type="text/javascript">
 
 const clickhouse_url = "https://play.clickhouse.com/?user=paste";
