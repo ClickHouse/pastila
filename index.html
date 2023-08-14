@@ -103,10 +103,6 @@
             width: min(50vw, 50vh);
         }
 
-        #passwordfield {
-            display: none;
-        }
-
         @media (prefers-color-scheme: dark) {
             body, textarea {
                 background-color: #000;
@@ -122,7 +118,6 @@
 <a class="about" href="https://github.com/ClickHouse/pastila">About</a>
 <div class="encryption">
     <input id="encryption" checked="true" type="checkbox">&nbsp;end-to-end encryption</input>
-    <input id="passwordfield" type="password" placeholder="password" />
 </div>
 <span class="status" id="hourglass">⧗</span>
 <span class="status" id="check-mark">✔</span>
@@ -133,7 +128,8 @@
 
 const clickhouse_url = "https://play.clickhouse.com/?user=paste";
 
-const encoder = new TextEncoder();
+const encoder = new TextEncoder;
+const decoder = new TextDecoder;
 
 function sipHash128(m) {
     function rotl(v, offset, bits) {
@@ -206,8 +202,6 @@ let curr_hash = '';
 let prev_fingerprint = '';
 let prev_hash = '';
 
-let anchorkey = window.location.hash.substring(1);
-
 let request_num = 0;
 
 let back = document.getElementById('back');
@@ -229,73 +223,33 @@ function show(what) {
     what.style.display = 'block';
 }
 
-function b64EncodeUnicode(str) {
-    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, function(match, p1) {
-        return String.fromCharCode('0x' + p1);
-    }));
+async function encrypt(content, key) {
+    const aes_key = await window.crypto.subtle.importKey('raw', key, { name: 'AES-CTR', length: 128 }, false, ['encrypt']);
+
+    let plaintext = encoder.encode(content);
+    let counter = new Uint8Array(16); /// This is ok as long as the key is not reused.
+    let encrypted = new Uint8Array(await window.crypto.subtle.encrypt({ name: "AES-CTR", counter: counter, length: 128 }, aes_key, plaintext));
+
+    return bytesToBase64(encrypted);
+}
+
+async function decrypt(content, key) {
+    const aes_key = await window.crypto.subtle.importKey('raw', key, { name: 'AES-CTR', length: 128 }, false, ['decrypt']);
+
+    let ciphertext = base64ToBytes(content);
+
+    let counter = new Uint8Array(16); /// This is ok as long as the key is not reused.
+    let decrypted = new Uint8Array(await window.crypto.subtle.decrypt({ name: "AES-CTR", counter: counter, length: 128 }, aes_key, ciphertext));
+
+    return decoder.decode(decrypted);
 }
 
 function bytesToBase64(bytes) {
-  let binary = "";
-  let len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return window.btoa(binary);
+    return window.btoa(String.fromCharCode(...bytes));
 }
 
 function base64ToBytes(base64) {
-  let binary_string =  window.atob(base64);
-  let len = binary_string.length;
-  let bytes = new Uint8Array(len);
-  for (var i = 0; i < len; i++) {
-    bytes[i] = binary_string.charCodeAt(i);
-  }
-  return bytes;
-}
-
-async function decrypt(content) {
-    let userpassword = passwordfield.value;
-    if (anchorkey == '') {
-        return '';
-    }
-    let encryptedbytes = base64ToBytes(content);
-    const encodedkey = new TextEncoder('utf8').encode(userpassword + anchorkey);
-    pbkdf2_keymaterials = await window.crypto.subtle.importKey("raw", encodedkey, {name: "PBKDF2"}, false, ["deriveBits"]);
-    const salt = encryptedbytes.slice(8, 16);
-    let pbkdf2keybytes = await window.crypto.subtle.deriveBits({ "name": 'PBKDF2', "salt": salt, "iterations": 1000, "hash": 'SHA-256' }, pbkdf2_keymaterials, 384);
-    pbkdf2keybytes = new Uint8Array(pbkdf2keybytes);
-    const keybytes = pbkdf2keybytes.slice(0, 32);
-    const iv = pbkdf2keybytes.slice(32);
-    encryptedbytes = encryptedbytes.slice(16);
-    const aeskey = await window.crypto.subtle.importKey('raw', keybytes, { name: 'AES-CBC', length: 256 }, false, ['decrypt']);
-    let plaintextbytes = await window.crypto.subtle.decrypt({ name: "AES-CBC", iv: iv }, aeskey, encryptedbytes);
-    const result = new TextDecoder("utf-8").decode(plaintextbytes);
-    return result;
-}
-
-async function encrypt(content) {
-    let userpassword = passwordfield.value;
-    if (anchorkey == '') {
-        anchorkey = ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
-    }
-    let plaintextbytes = new TextEncoder("utf-8").encode(content);
-    const encodedkey = new TextEncoder('utf8').encode(userpassword + anchorkey);
-    pbkdf2_keymaterials = await window.crypto.subtle.importKey("raw", encodedkey, { name: "PBKDF2" }, false, ["deriveBits"]);
-    salt = window.crypto.getRandomValues(new Uint8Array(8));
-    let pbkdf2keybytes = await window.crypto.subtle.deriveBits({ "name": 'PBKDF2', "salt": salt, "iterations": 1000, "hash": 'SHA-256' }, pbkdf2_keymaterials, 384);
-    pbkdf2keybytes = new Uint8Array(pbkdf2keybytes);
-    const keybytes = pbkdf2keybytes.slice(0, 32);
-    const iv = pbkdf2keybytes.slice(32);
-    const aeskey = await window.crypto.subtle.importKey('raw', keybytes, { name: 'AES-CBC', length: 256 }, false, ['encrypt']);
-    let encryptedbytes = await window.crypto.subtle.encrypt({ name: "AES-CBC", iv: iv }, aeskey, plaintextbytes);
-    encryptedbytes = new Uint8Array(encryptedbytes);
-    let resultbytes = new Uint8Array(encryptedbytes.length + 16);
-    resultbytes.set(new TextEncoder("utf-8").encode('Salted__'));
-    resultbytes.set(salt, 8);
-    resultbytes.set(encryptedbytes, 16);
-    result = bytesToBase64(resultbytes);
-    return result;
+    return result = new Uint8Array([...window.atob(base64)].map(x => x.charCodeAt(0)));
 }
 
 async function load(fingerprint, hash, type) {
@@ -326,12 +280,9 @@ async function load(fingerprint, hash, type) {
 
     if (is_encrypted) {
         encryption.checked = true;
-        encryption.setAttribute('disabled','');
-        content = await decrypt(content);
-        if (content === "") {
-            document.getElementById('data').value = "Fail to decrypt content - Do you have the key?";
-            return;
-        } 
+        encryption.setAttribute('disabled', '');
+        key = base64ToBytes(window.location.hash.substring(1));
+        content = await decrypt(content, key);
     }
 
     if (type === '.html' || type == '.htm') {
@@ -368,17 +319,28 @@ async function load(fingerprint, hash, type) {
     setFavicon();
 }
 
-passwordfield.addEventListener('keyup', (event) => {
-    if (event.key === 'Enter' || event.keyCode === 13) 
-        restore()
-    });
 
-passwordfield.addEventListener('focusout', (event) =>restore());
-
-async function save(text, is_encrypted) {
+async function save() {
     const my_request_num = ++request_num;
 
     show(wait);
+
+    prev_fingerprint = curr_fingerprint;
+    prev_hash = curr_hash;
+
+    let text = document.getElementById('data').value;
+    let anchor = '';
+
+    is_encrypted = encryption.checked;
+    if (is_encrypted) {
+        const key_bytes = crypto.getRandomValues(new Uint8Array(32));
+        text = await encrypt(text, key_bytes);
+        anchor = '#' + bytesToBase64(key_bytes);
+        encryption.setAttribute('disabled', '');
+    }
+
+    curr_hash = sipHash128(encoder.encode(text));
+    curr_fingerprint = getFingerprint(text);
 
     const response = await fetch(
         clickhouse_url,
@@ -401,9 +363,13 @@ async function save(text, is_encrypted) {
     }
 
     if (my_request_num == request_num) {
-        history.pushState(null, null, window.location.pathname.replace(/(\?.+)?$/, `?${curr_fingerprint}/${curr_hash}#${anchorkey}`));
+        history.pushState(null, null, window.location.pathname.replace(/(\?.+)?$/, `?${curr_fingerprint}/${curr_hash}${anchor}`));
         show(check);
         setFavicon();
+    }
+
+    if (is_encrypted) {
+        encryption.setAttribute('disabled', '');
     }
 }
 
@@ -441,30 +407,7 @@ function loadQRRenderer() {
         'sha512-PEhlWBZBrQL7flpJPY8lXx8tIN7HWX912GzGhFTDqA3iWFrakVH3lVHomCoU9BhfKzgxfEk6EG2C3xej+9srOQ==');
 }
 
-async function savedata(event){
-    prev_fingerprint = curr_fingerprint;
-    prev_hash = curr_hash;
-    is_encrypted = false;
-
-    let text = document.getElementById('data').value;
-    if (encryption.checked == true) {
-        is_encrypted=true;
-        text = await encrypt(text)
-        if (text === ''){
-            console.log("Fail to encrypt");
-            return;
-        }
-        encryption.setAttribute('disabled','');
-        passwordfield.setAttribute('disabled','');
-    }
-
-    curr_hash = sipHash128(encoder.encode(text));
-    curr_fingerprint = getFingerprint(text);
-
-    save(text, is_encrypted);
-}
-
-document.getElementById('data').addEventListener('input', (event) => savedata(event));
+document.getElementById('data').addEventListener('input', event => save());
 
 back.addEventListener('click', (event) => {
     load(prev_fingerprint, prev_hash);
