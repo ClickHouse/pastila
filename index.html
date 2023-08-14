@@ -24,14 +24,8 @@
         }
 
         .encryption {
-            position: absolute;
-            left: 0.5em;
-            top: 0.5em;
-            z-index: 1;
-        }
-
-        .data {
-            margin-top: 2em
+            padding-left: 0.5em;
+            padding-top: 0.5em;
         }
 
         textarea {
@@ -119,7 +113,7 @@
 <body>
 <a class="about" href="https://github.com/ClickHouse/pastila">About</a>
 <div class="encryption">
-    <input id="encryption" checked=true type="checkbox">AES Encryption</input> 
+    <input id="encryption" checked="true" type="checkbox">&nbsp;end-to-end encryption</input>
     <input id="passwordfield" type="password" placeholder="password" style="display:none"></input> 
 </div>
 <span class="status" id="hourglass">⧗</span>
@@ -211,10 +205,11 @@ let back = document.getElementById('back');
 let check = document.getElementById('check-mark');
 let error = document.getElementById('error');
 let wait = document.getElementById('hourglass');
+
 let encryption = document.getElementById('encryption');
 let passwordfield = document.getElementById('passwordfield');
-passwordfield.addEventListener("mouseover",()=>{event.target.type = 'text'});
-passwordfield.addEventListener("mouseout",()=>{event.target.type = 'password'});
+passwordfield.addEventListener("mouseover", () => { event.target.type = 'text' });
+passwordfield.addEventListener("mouseout", () => { event.target.type = 'password' });
 
 function hide() {
     back.style.display = 'none';
