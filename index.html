@@ -312,9 +312,7 @@ async function load(fingerprint, hash, type) {
         if (prev_hash == '00000000000000000000000000000000') {
             hide();
         } else {
-            if (!is_encrypted) {
-                show(back);
-            }
+            show(is_encrypted ? check : back);
         }
     }
 
