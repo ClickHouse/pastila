@@ -80,6 +80,7 @@ CREATE TABLE paste.data
     hash_hex String EPHEMERAL '',
     prev_fingerprint_hex String EPHEMERAL '',
     prev_hash_hex String EPHEMERAL '',
+    is_encrypted UInt8,
 
     CONSTRAINT length CHECK length(content) < 10 * 1024 * 1024,
     CONSTRAINT hash_is_correct CHECK sipHash128(content) = reinterpretAsFixedString(hash),
