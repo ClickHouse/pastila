@@ -99,6 +99,10 @@
             width: min(50vw, 50vh);
         }
 
+        #passwordfield {
+            display: none;
+        }
+
         @media (prefers-color-scheme: dark) {
             body, textarea {
                 background-color: #000;
@@ -114,7 +118,7 @@
 <a class="about" href="https://github.com/ClickHouse/pastila">About</a>
 <div class="encryption">
     <input id="encryption" checked="true" type="checkbox">&nbsp;end-to-end encryption</input>
-    <input id="passwordfield" type="password" placeholder="password" style="display:none"></input> 
+    <input id="passwordfield" type="password" placeholder="password" />
 </div>
 <span class="status" id="hourglass">⧗</span>
 <span class="status" id="check-mark">✔</span>
