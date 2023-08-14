@@ -23,6 +23,19 @@
             font-family: ui-monospace, SFMono-Regular, SF Mono,Menlo, Consolas, Liberation Mono, monospace;
         }
 
+        .encryption{
+            position: absolute;
+            left: 0.5em;
+            top: 0.5em;
+            z-index: 1;
+            font-family: sans-serif;
+            background: #FFF;
+        }
+
+        .data{
+            margin-top: 2em
+        }
+
         textarea {
             outline: none;
             border: none;
@@ -107,11 +120,15 @@
 </head>
 <body>
 <a class="about" href="https://github.com/ClickHouse/pastila">About</a>
+<div class="encryption">
+    <input id="encryption" checked=true type="checkbox">AES Encryption</input> 
+    <input id="passwordfield" type="password" placeholder="password" style="display:none"></input> 
+</div>
 <span class="status" id="hourglass">⧗</span>
 <span class="status" id="check-mark">✔</span>
 <span class="status" id="error">❌</span>
 <a class="status" id="back">⎌</a>
-<textarea id="data" spellcheck="false" autofocus></textarea>
+<textarea id="data" class="data" spellcheck="false" autofocus></textarea>
 <script type="text/javascript">
 
 const clickhouse_url = "https://play.clickhouse.com/?user=paste";
@@ -188,6 +205,7 @@ let curr_fingerprint = '';
 let curr_hash = '';
 let prev_fingerprint = '';
 let prev_hash = '';
+let anchorkey = window.location.hash.substring(1);
 
 let request_num = 0;
 
@@ -195,6 +213,10 @@ let back = document.getElementById('back');
 let check = document.getElementById('check-mark');
 let error = document.getElementById('error');
 let wait = document.getElementById('hourglass');
+let encryption = document.getElementById('encryption');
+let passwordfield = document.getElementById('passwordfield');
+passwordfield.addEventListener("mouseover",()=>{event.target.type = 'text'});
+passwordfield.addEventListener("mouseout",()=>{event.target.type = 'password'});
 
 function hide() {
     back.style.display = 'none';
@@ -208,12 +230,95 @@ function show(what) {
     what.style.display = 'block';
 }
 
+function b64EncodeUnicode(str) {
+    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, function(match, p1) {
+        return String.fromCharCode('0x' + p1);
+    }));
+}
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  let len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return window.btoa(binary);
+}
+
+function base64ToBytes(base64) {
+  let binary_string =  window.atob(base64);
+  let len = binary_string.length;
+  let bytes = new Uint8Array(len);
+  for (var i = 0; i < len; i++) {
+    bytes[i] = binary_string.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function decrypt(content){
+    try {
+        let userpassword = passwordfield.value;
+        if (anchorkey == '') {
+            throw "No key was found - cannot decrypt";
+        }
+        let encryptedbytes=base64ToBytes(content);
+        const encodedkey = new TextEncoder('utf8').encode(userpassword+anchorkey);
+        pbkdf2_keymaterials = await window.crypto.subtle.importKey("raw", encodedkey, {name: "PBKDF2"}, false, ["deriveBits"]);
+        const salt = encryptedbytes.slice(8, 16);
+        let pbkdf2keybytes = await window.crypto.subtle.deriveBits({ "name": 'PBKDF2', "salt": salt, "iterations": 1000, "hash": 'SHA-256' }, pbkdf2_keymaterials, 384);
+        pbkdf2keybytes = new Uint8Array(pbkdf2keybytes);
+        const keybytes = pbkdf2keybytes.slice(0, 32);
+        const iv = pbkdf2keybytes.slice(32);
+        encryptedbytes = encryptedbytes.slice(16);
+        const aeskey = await window.crypto.subtle.importKey('raw', keybytes, { name: 'AES-CBC', length: 256 }, false, ['decrypt']);
+        let plaintextbytes = await window.crypto.subtle.decrypt({ name: "AES-CBC", iv: iv }, aeskey, encryptedbytes);
+        const result = new TextDecoder("utf-8").decode(plaintextbytes);
+        return result;
+    } catch(e) {
+        console.log("Fail to decrypt - return content as is");
+        console.log(e);
+        return "";
+    }
+}
+
+async function encrypt(content){
+    try {
+        let userpassword = passwordfield.value;
+        if (anchorkey == '') {
+            anchorkey=([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>(c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
+        }
+        let plaintextbytes = new TextEncoder("utf-8").encode(content);
+        const encodedkey = new TextEncoder('utf8').encode(userpassword+anchorkey);
+        pbkdf2_keymaterials = await window.crypto.subtle.importKey("raw", encodedkey, {name: "PBKDF2"}, false, ["deriveBits"]);
+        salt = window.crypto.getRandomValues(new Uint8Array(8));
+        let pbkdf2keybytes = await window.crypto.subtle.deriveBits({ "name": 'PBKDF2', "salt": salt, "iterations": 1000, "hash": 'SHA-256' }, pbkdf2_keymaterials, 384);
+        pbkdf2keybytes = new Uint8Array(pbkdf2keybytes);
+        const keybytes = pbkdf2keybytes.slice(0, 32);
+        const iv = pbkdf2keybytes.slice(32);
+        const aeskey = await window.crypto.subtle.importKey('raw', keybytes, { name: 'AES-CBC', length: 256 }, false, ['encrypt']);
+        let encryptedbytes = await window.crypto.subtle.encrypt({ name: "AES-CBC", iv: iv }, aeskey, plaintextbytes);
+        encryptedbytes = new Uint8Array(encryptedbytes);
+        let resultbytes = new Uint8Array(encryptedbytes.length + 16);
+        resultbytes.set(new TextEncoder("utf-8").encode('Salted__'));
+        resultbytes.set(salt, 8);
+        resultbytes.set(encryptedbytes, 16);
+        result = bytesToBase64(resultbytes);
+        return result;
+
+    } catch (e) {
+        alert("Fail to encrypt - File not sent");
+        console.error(e);
+        return "";
+    }
+
+}
+
 async function load(fingerprint, hash, type) {
     show(wait);
 
     const response = await fetch(
         clickhouse_url,
-        { method: "POST", body: `SELECT content, lower(hex(reinterpretAsFixedString(prev_hash))) AS prev_hash, lower(hex(reinterpretAsFixedString(prev_fingerprint))) AS prev_fingerprint FROM data WHERE fingerprint = reinterpretAsUInt32(unhex('${fingerprint}')) AND hash = reinterpretAsUInt128(unhex('${hash}')) ORDER BY time LIMIT 1 FORMAT JSON` });
+        { method: "POST", body: `SELECT content, is_encrypted, lower(hex(reinterpretAsFixedString(prev_hash))) AS prev_hash, lower(hex(reinterpretAsFixedString(prev_fingerprint))) AS prev_fingerprint FROM data WHERE fingerprint = reinterpretAsUInt32(unhex('${fingerprint}')) AND hash = reinterpretAsUInt128(unhex('${hash}')) ORDER BY time LIMIT 1 FORMAT JSON` });
 
     function onError() {
         show(error);
@@ -225,13 +330,24 @@ async function load(fingerprint, hash, type) {
     if (json.rows != 1) onError();
 
     const result = json.data[0];
-    const content = result.content;
+    let content = result.content;
+    const is_encrypted = result.is_encrypted;
 
     prev_hash = result.prev_hash;
     prev_fingerprint = result.prev_fingerprint;
 
     curr_hash = hash;
     curr_fingerprint = fingerprint;
+
+    if (is_encrypted) {
+        encryption.checked = true;
+        encryption.setAttribute('disabled','');
+        content = await decrypt(content);
+        if (content === "") {
+            document.getElementById('data').value = "Fail to decrypt content - Do you have the key?";
+            return;
+        } 
+    }
 
     if (type === '.html' || type == '.htm') {
         document.open();
@@ -267,7 +383,14 @@ async function load(fingerprint, hash, type) {
     setFavicon();
 }
 
-async function save(text) {
+passwordfield.addEventListener('keyup', (event) => {
+    if (event.key === 'Enter' || event.keyCode === 13) 
+        restore()
+    });
+
+passwordfield.addEventListener('focusout', (event) =>restore());
+
+async function save(text, is_encrypted) {
     const my_request_num = ++request_num;
 
     show(wait);
@@ -276,13 +399,14 @@ async function save(text) {
         clickhouse_url,
         {
             method: "POST",
-            body: "INSERT INTO data (fingerprint_hex, hash_hex, prev_fingerprint_hex, prev_hash_hex, content) FORMAT JSONEachRow " + JSON.stringify(
+            body: "INSERT INTO data (fingerprint_hex, hash_hex, prev_fingerprint_hex, prev_hash_hex, content, is_encrypted) FORMAT JSONEachRow " + JSON.stringify(
             {
                 fingerprint_hex: curr_fingerprint,
                 hash_hex: curr_hash,
                 prev_fingerprint_hex: prev_fingerprint,
                 prev_hash_hex: prev_hash,
-                content: text
+                content: text,
+                is_encrypted: is_encrypted
             })
         });
 
@@ -292,7 +416,7 @@ async function save(text) {
     }
 
     if (my_request_num == request_num) {
-        history.pushState(null, null, window.location.pathname.replace(/(\?.+)?$/, `?${curr_fingerprint}/${curr_hash}`));
+        history.pushState(null, null, window.location.pathname.replace(/(\?.+)?$/, `?${curr_fingerprint}/${curr_hash}#${anchorkey}`));
         show(check);
         setFavicon();
     }
@@ -332,22 +456,34 @@ function loadQRRenderer() {
         'sha512-PEhlWBZBrQL7flpJPY8lXx8tIN7HWX912GzGhFTDqA3iWFrakVH3lVHomCoU9BhfKzgxfEk6EG2C3xej+9srOQ==');
 }
 
-document.getElementById('data').addEventListener('input', (event) => {
-
+async function savedata(event){
     prev_fingerprint = curr_fingerprint;
-    prev_hash = curr_hash
+    prev_hash = curr_hash;
+    is_encrypted = false;
 
-    const text = document.getElementById('data').value;
+    let text = document.getElementById('data').value;
+    if (encryption.checked == true) {
+        is_encrypted=true;
+        text = await encrypt(text)
+        if (text === ''){
+            console.log("Fail to encrypt");
+            return;
+        }
+        encryption.setAttribute('disabled','');
+        passwordfield.setAttribute('disabled','');
+    }
 
     curr_hash = sipHash128(encoder.encode(text));
     curr_fingerprint = getFingerprint(text);
 
-    save(text);
-});
+    save(text, is_encrypted);
+}
+
+document.getElementById('data').addEventListener('input', (event) => savedata(event));
 
 back.addEventListener('click', (event) => {
     load(prev_fingerprint, prev_hash);
-    history.pushState(null, null, window.location.pathname.replace(/(\?.+)?$/, `?${curr_fingerprint}/${curr_hash}`));
+    history.pushState(null, null, window.location.pathname.replace(/(\?.+)?$/, `?${curr_fingerprint}/${curr_hash}#${anchorkey}`));
 });
 
 function restore() {
