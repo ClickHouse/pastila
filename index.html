@@ -17,10 +17,25 @@
 
         body {
             font-family: sans-serif;
+            display: grid;
+            grid-template-rows: auto 1fr;
         }
 
         pre, code, textarea {
             font-family: ui-monospace, SFMono-Regular, SF Mono,Menlo, Consolas, Liberation Mono, monospace;
+        }
+
+        #panel {
+            padding: 0.5em;
+            background-color: #EEE;
+        }
+
+        #encryption {
+            padding-left: 0.5em;
+        }
+
+        textarea {
+            height: 100%;
         }
 
         textarea {
@@ -41,12 +56,9 @@
         }
 
         .about {
-            position: absolute;
+            float: right;
             right: 1em;
-            top: 0.5em;
-            z-index: 1;
             font-family: sans-serif;
-            background: #FFF;
         }
 
         #hourglass {
@@ -97,26 +109,33 @@
         @media (prefers-color-scheme: dark) {
             body, textarea {
                 background-color: #000;
-                color: rgba(255,255,255,0.8)
+                color: rgba(255, 255, 255, 0.8)
             }
-            .about {
-                background-color: #000;
+            #panel {
+                background-color: #033;
             }
         }
     </style>
 </head>
 <body>
-<a class="about" href="https://github.com/ClickHouse/pastila">About</a>
+
+<div id="panel">
+    <a class="about" href="https://github.com/ClickHouse/pastila">About</a>
+    <input id="encryption" checked="true" type="checkbox">&nbsp;end-to-end encryption</input>
+</div>
+
+<textarea id="data" spellcheck="false" autofocus></textarea>
+
 <span class="status" id="hourglass">⧗</span>
 <span class="status" id="check-mark">✔</span>
 <span class="status" id="error">❌</span>
 <a class="status" id="back">⎌</a>
-<textarea id="data" spellcheck="false" autofocus></textarea>
 <script type="text/javascript">
 
 const clickhouse_url = "https://play.clickhouse.com/?user=paste";
 
-const encoder = new TextEncoder();
+const encoder = new TextEncoder;
+const decoder = new TextDecoder;
 
 function sipHash128(m) {
     function rotl(v, offset, bits) {
@@ -196,6 +215,8 @@ let check = document.getElementById('check-mark');
 let error = document.getElementById('error');
 let wait = document.getElementById('hourglass');
 
+let encryption = document.getElementById('encryption');
+
 function hide() {
     back.style.display = 'none';
     check.style.display = 'none';
@@ -208,12 +229,41 @@ function show(what) {
     what.style.display = 'block';
 }
 
+async function encrypt(content, key) {
+    const aes_key = await window.crypto.subtle.importKey('raw', key, { name: 'AES-CTR', length: 128 }, false, ['encrypt']);
+
+    let plaintext = encoder.encode(content);
+    let counter = new Uint8Array(16); /// This is ok as long as the key is not reused.
+    let encrypted = new Uint8Array(await window.crypto.subtle.encrypt({ name: "AES-CTR", counter: counter, length: 128 }, aes_key, plaintext));
+
+    return bytesToBase64(encrypted);
+}
+
+async function decrypt(content, key) {
+    const aes_key = await window.crypto.subtle.importKey('raw', key, { name: 'AES-CTR', length: 128 }, false, ['decrypt']);
+
+    let ciphertext = base64ToBytes(content);
+
+    let counter = new Uint8Array(16); /// This is ok as long as the key is not reused.
+    let decrypted = new Uint8Array(await window.crypto.subtle.decrypt({ name: "AES-CTR", counter: counter, length: 128 }, aes_key, ciphertext));
+
+    return decoder.decode(decrypted);
+}
+
+function bytesToBase64(bytes) {
+    return window.btoa(String.fromCharCode(...bytes));
+}
+
+function base64ToBytes(base64) {
+    return result = new Uint8Array([...window.atob(base64)].map(x => x.charCodeAt(0)));
+}
+
 async function load(fingerprint, hash, type) {
     show(wait);
 
     const response = await fetch(
         clickhouse_url,
-        { method: "POST", body: `SELECT content, lower(hex(reinterpretAsFixedString(prev_hash))) AS prev_hash, lower(hex(reinterpretAsFixedString(prev_fingerprint))) AS prev_fingerprint FROM data WHERE fingerprint = reinterpretAsUInt32(unhex('${fingerprint}')) AND hash = reinterpretAsUInt128(unhex('${hash}')) ORDER BY time LIMIT 1 FORMAT JSON` });
+        { method: "POST", body: `SELECT content, is_encrypted, lower(hex(reinterpretAsFixedString(prev_hash))) AS prev_hash, lower(hex(reinterpretAsFixedString(prev_fingerprint))) AS prev_fingerprint FROM data WHERE fingerprint = reinterpretAsUInt32(unhex('${fingerprint}')) AND hash = reinterpretAsUInt128(unhex('${hash}')) ORDER BY time LIMIT 1 FORMAT JSON` });
 
     function onError() {
         show(error);
@@ -225,13 +275,21 @@ async function load(fingerprint, hash, type) {
     if (json.rows != 1) onError();
 
     const result = json.data[0];
-    const content = result.content;
+    let content = result.content;
+    const is_encrypted = result.is_encrypted;
 
     prev_hash = result.prev_hash;
     prev_fingerprint = result.prev_fingerprint;
 
     curr_hash = hash;
     curr_fingerprint = fingerprint;
+
+    if (is_encrypted) {
+        encryption.checked = true;
+        encryption.setAttribute('disabled', '');
+        key = base64ToBytes(window.location.hash.substring(1));
+        content = await decrypt(content, key);
+    }
 
     if (type === '.html' || type == '.htm') {
         document.open();
@@ -260,29 +318,48 @@ async function load(fingerprint, hash, type) {
         if (prev_hash == '00000000000000000000000000000000') {
             hide();
         } else {
-            show(back);
+            show(is_encrypted ? check : back);
         }
     }
 
     setFavicon();
 }
 
-async function save(text) {
+
+async function save() {
     const my_request_num = ++request_num;
 
     show(wait);
+
+    prev_fingerprint = curr_fingerprint;
+    prev_hash = curr_hash;
+
+    let text = document.getElementById('data').value;
+    let anchor = '';
+
+    is_encrypted = encryption.checked;
+    if (is_encrypted) {
+        const key_bytes = crypto.getRandomValues(new Uint8Array(32));
+        text = await encrypt(text, key_bytes);
+        anchor = '#' + bytesToBase64(key_bytes);
+        encryption.setAttribute('disabled', '');
+    }
+
+    curr_hash = sipHash128(encoder.encode(text));
+    curr_fingerprint = getFingerprint(text);
 
     const response = await fetch(
         clickhouse_url,
         {
             method: "POST",
-            body: "INSERT INTO data (fingerprint_hex, hash_hex, prev_fingerprint_hex, prev_hash_hex, content) FORMAT JSONEachRow " + JSON.stringify(
+            body: "INSERT INTO data (fingerprint_hex, hash_hex, prev_fingerprint_hex, prev_hash_hex, content, is_encrypted) FORMAT JSONEachRow " + JSON.stringify(
             {
                 fingerprint_hex: curr_fingerprint,
                 hash_hex: curr_hash,
                 prev_fingerprint_hex: prev_fingerprint,
                 prev_hash_hex: prev_hash,
-                content: text
+                content: text,
+                is_encrypted: is_encrypted
             })
         });
 
@@ -292,9 +369,13 @@ async function save(text) {
     }
 
     if (my_request_num == request_num) {
-        history.pushState(null, null, window.location.pathname.replace(/(\?.+)?$/, `?${curr_fingerprint}/${curr_hash}`));
+        history.pushState(null, null, window.location.pathname.replace(/(\?.+)?$/, `?${curr_fingerprint}/${curr_hash}${anchor}`));
         show(check);
         setFavicon();
+    }
+
+    if (is_encrypted) {
+        encryption.setAttribute('disabled', '');
     }
 }
 
@@ -332,22 +413,11 @@ function loadQRRenderer() {
         'sha512-PEhlWBZBrQL7flpJPY8lXx8tIN7HWX912GzGhFTDqA3iWFrakVH3lVHomCoU9BhfKzgxfEk6EG2C3xej+9srOQ==');
 }
 
-document.getElementById('data').addEventListener('input', (event) => {
-
-    prev_fingerprint = curr_fingerprint;
-    prev_hash = curr_hash
-
-    const text = document.getElementById('data').value;
-
-    curr_hash = sipHash128(encoder.encode(text));
-    curr_fingerprint = getFingerprint(text);
-
-    save(text);
-});
+document.getElementById('data').addEventListener('input', event => save());
 
 back.addEventListener('click', (event) => {
     load(prev_fingerprint, prev_hash);
-    history.pushState(null, null, window.location.pathname.replace(/(\?.+)?$/, `?${curr_fingerprint}/${curr_hash}`));
+    history.pushState(null, null, window.location.pathname.replace(/(\?.+)?$/, `?${curr_fingerprint}/${curr_hash}#${anchorkey}`));
 });
 
 function restore() {
