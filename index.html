@@ -205,6 +205,7 @@ let curr_fingerprint = '';
 let curr_hash = '';
 let prev_fingerprint = '';
 let prev_hash = '';
+
 let anchorkey = window.location.hash.substring(1);
 
 let request_num = 0;
@@ -215,9 +216,6 @@ let error = document.getElementById('error');
 let wait = document.getElementById('hourglass');
 
 let encryption = document.getElementById('encryption');
-let passwordfield = document.getElementById('passwordfield');
-passwordfield.addEventListener("mouseover", () => { event.target.type = 'text' });
-passwordfield.addEventListener("mouseout", () => { event.target.type = 'password' });
 
 function hide() {
     back.style.display = 'none';
@@ -256,62 +254,48 @@ function base64ToBytes(base64) {
   return bytes;
 }
 
-async function decrypt(content){
-    try {
-        let userpassword = passwordfield.value;
-        if (anchorkey == '') {
-            throw "No key was found - cannot decrypt";
-        }
-        let encryptedbytes=base64ToBytes(content);
-        const encodedkey = new TextEncoder('utf8').encode(userpassword+anchorkey);
-        pbkdf2_keymaterials = await window.crypto.subtle.importKey("raw", encodedkey, {name: "PBKDF2"}, false, ["deriveBits"]);
-        const salt = encryptedbytes.slice(8, 16);
-        let pbkdf2keybytes = await window.crypto.subtle.deriveBits({ "name": 'PBKDF2', "salt": salt, "iterations": 1000, "hash": 'SHA-256' }, pbkdf2_keymaterials, 384);
-        pbkdf2keybytes = new Uint8Array(pbkdf2keybytes);
-        const keybytes = pbkdf2keybytes.slice(0, 32);
-        const iv = pbkdf2keybytes.slice(32);
-        encryptedbytes = encryptedbytes.slice(16);
-        const aeskey = await window.crypto.subtle.importKey('raw', keybytes, { name: 'AES-CBC', length: 256 }, false, ['decrypt']);
-        let plaintextbytes = await window.crypto.subtle.decrypt({ name: "AES-CBC", iv: iv }, aeskey, encryptedbytes);
-        const result = new TextDecoder("utf-8").decode(plaintextbytes);
-        return result;
-    } catch(e) {
-        console.log("Fail to decrypt - return content as is");
-        console.log(e);
-        return "";
+async function decrypt(content) {
+    let userpassword = passwordfield.value;
+    if (anchorkey == '') {
+        return '';
     }
+    let encryptedbytes = base64ToBytes(content);
+    const encodedkey = new TextEncoder('utf8').encode(userpassword + anchorkey);
+    pbkdf2_keymaterials = await window.crypto.subtle.importKey("raw", encodedkey, {name: "PBKDF2"}, false, ["deriveBits"]);
+    const salt = encryptedbytes.slice(8, 16);
+    let pbkdf2keybytes = await window.crypto.subtle.deriveBits({ "name": 'PBKDF2', "salt": salt, "iterations": 1000, "hash": 'SHA-256' }, pbkdf2_keymaterials, 384);
+    pbkdf2keybytes = new Uint8Array(pbkdf2keybytes);
+    const keybytes = pbkdf2keybytes.slice(0, 32);
+    const iv = pbkdf2keybytes.slice(32);
+    encryptedbytes = encryptedbytes.slice(16);
+    const aeskey = await window.crypto.subtle.importKey('raw', keybytes, { name: 'AES-CBC', length: 256 }, false, ['decrypt']);
+    let plaintextbytes = await window.crypto.subtle.decrypt({ name: "AES-CBC", iv: iv }, aeskey, encryptedbytes);
+    const result = new TextDecoder("utf-8").decode(plaintextbytes);
+    return result;
 }
 
-async function encrypt(content){
-    try {
-        let userpassword = passwordfield.value;
-        if (anchorkey == '') {
-            anchorkey=([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>(c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
-        }
-        let plaintextbytes = new TextEncoder("utf-8").encode(content);
-        const encodedkey = new TextEncoder('utf8').encode(userpassword+anchorkey);
-        pbkdf2_keymaterials = await window.crypto.subtle.importKey("raw", encodedkey, {name: "PBKDF2"}, false, ["deriveBits"]);
-        salt = window.crypto.getRandomValues(new Uint8Array(8));
-        let pbkdf2keybytes = await window.crypto.subtle.deriveBits({ "name": 'PBKDF2', "salt": salt, "iterations": 1000, "hash": 'SHA-256' }, pbkdf2_keymaterials, 384);
-        pbkdf2keybytes = new Uint8Array(pbkdf2keybytes);
-        const keybytes = pbkdf2keybytes.slice(0, 32);
-        const iv = pbkdf2keybytes.slice(32);
-        const aeskey = await window.crypto.subtle.importKey('raw', keybytes, { name: 'AES-CBC', length: 256 }, false, ['encrypt']);
-        let encryptedbytes = await window.crypto.subtle.encrypt({ name: "AES-CBC", iv: iv }, aeskey, plaintextbytes);
-        encryptedbytes = new Uint8Array(encryptedbytes);
-        let resultbytes = new Uint8Array(encryptedbytes.length + 16);
-        resultbytes.set(new TextEncoder("utf-8").encode('Salted__'));
-        resultbytes.set(salt, 8);
-        resultbytes.set(encryptedbytes, 16);
-        result = bytesToBase64(resultbytes);
-        return result;
-
-    } catch (e) {
-        alert("Fail to encrypt - File not sent");
-        console.error(e);
-        return "";
+async function encrypt(content) {
+    let userpassword = passwordfield.value;
+    if (anchorkey == '') {
+        anchorkey = ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
     }
-
+    let plaintextbytes = new TextEncoder("utf-8").encode(content);
+    const encodedkey = new TextEncoder('utf8').encode(userpassword + anchorkey);
+    pbkdf2_keymaterials = await window.crypto.subtle.importKey("raw", encodedkey, { name: "PBKDF2" }, false, ["deriveBits"]);
+    salt = window.crypto.getRandomValues(new Uint8Array(8));
+    let pbkdf2keybytes = await window.crypto.subtle.deriveBits({ "name": 'PBKDF2', "salt": salt, "iterations": 1000, "hash": 'SHA-256' }, pbkdf2_keymaterials, 384);
+    pbkdf2keybytes = new Uint8Array(pbkdf2keybytes);
+    const keybytes = pbkdf2keybytes.slice(0, 32);
+    const iv = pbkdf2keybytes.slice(32);
+    const aeskey = await window.crypto.subtle.importKey('raw', keybytes, { name: 'AES-CBC', length: 256 }, false, ['encrypt']);
+    let encryptedbytes = await window.crypto.subtle.encrypt({ name: "AES-CBC", iv: iv }, aeskey, plaintextbytes);
+    encryptedbytes = new Uint8Array(encryptedbytes);
+    let resultbytes = new Uint8Array(encryptedbytes.length + 16);
+    resultbytes.set(new TextEncoder("utf-8").encode('Salted__'));
+    resultbytes.set(salt, 8);
+    resultbytes.set(encryptedbytes, 16);
+    result = bytesToBase64(resultbytes);
+    return result;
 }
 
 async function load(fingerprint, hash, type) {
