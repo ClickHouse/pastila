@@ -252,7 +252,7 @@ async function decrypt(content, key) {
 
 function bytesToBase64(bytes) {
     let string = '';
-    for (let char of bytes) {
+    for (const char of bytes) {
         string += String.fromCharCode(char);
     }
     return window.btoa(string);
