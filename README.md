@@ -16,9 +16,10 @@ Features:
 - after data is saved or loaded, you see the check mark in the bottom right corner;
 - just copy the link from the address bar - it is a permanent link to the data;
 - you can edit already saved data but the new link will be created and the old links remain permanent;
-- you can host Markdown pages - just add .md to the URL and share it;
-- you can host HTML pages - just add .html to the URL and share it
+- you can host Markdown pages - just add `.md` to the URL before the `#` anchor and share it;
+- you can host HTML pages - just add `.html` to the URL before the `#` anchor and share it
   this is very insecure, see "open redirect";
+- you can host a link shortener - just add `.link` to the URL before the `#` anchor and share it;
 - browser history is used while editing for easy undo;
 - edit history is also saved in the database: after you load the data,
   previous version of the data is available by clicking the "back" button in bottom right corner;
