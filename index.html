@@ -122,6 +122,7 @@
 <div id="panel">
     <a class="about" href="https://github.com/ClickHouse/pastila">About</a>
     <input id="encryption" checked="true" type="checkbox">&nbsp;end-to-end encryption</input>
+    <input id="wrap" checked="true" type="checkbox">&nbsp;text wrap</input>
 </div>
 
 <textarea id="data" spellcheck="false" autofocus></textarea>
@@ -495,6 +496,12 @@ window.onpopstate = function(event) {
 };
 
 restore();
+
+function updateTextWrap() {
+    document.getElementById('data').style.whiteSpace = document.getElementById('wrap').checked ? 'pre-wrap' : 'pre';
+}
+document.getElementById('wrap').addEventListener('change', e => updateTextWrap());
+updateTextWrap();
 
 </script>
 </body>
