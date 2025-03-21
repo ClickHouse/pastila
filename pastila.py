@@ -84,7 +84,7 @@ def load(url):
     if r is None: error('bad url')
     fingerprint, hash_hex, key = r.groups()
     
-    response = requests.post('https://play.clickhouse.com/?user=paste', data=f"SELECT content, is_encrypted FROM data WHERE fingerprint = reinterpretAsUInt32(unhex('{fingerprint}')) AND hash = reinterpretAsUInt128(unhex('{hash_hex}')) ORDER BY time LIMIT 1 FORMAT JSON")
+    response = requests.post('https://uzg8q0g12h.eu-central-1.aws.clickhouse.cloud/?user=paste', data=f"SELECT content, is_encrypted FROM data WHERE fingerprint = reinterpretAsUInt32(unhex('{fingerprint}')) AND hash = reinterpretAsUInt128(unhex('{hash_hex}')) ORDER BY time LIMIT 1 FORMAT JSON")
     if not response.ok: error(f"{response} {response.content}")
 
     j = json.loads(response.content)
@@ -122,7 +122,7 @@ def save(data, encrypt):
         'content': data.decode(),
         'is_encrypted': encrypt,
     })
-    response = requests.post('https://play.clickhouse.com/?user=paste', data=f'INSERT INTO data (fingerprint_hex, hash_hex, content, is_encrypted) FORMAT JSONEachRow {payload}')
+    response = requests.post('https://uzg8q0g12h.eu-central-1.aws.clickhouse.cloud/?user=paste', data=f'INSERT INTO data (fingerprint_hex, hash_hex, content, is_encrypted) FORMAT JSONEachRow {payload}')
     if not response.ok: error(f"{response} {response.content}")
     print(f"https://pastila.nl/?{fingerprint}/{h}{url_suffix}")
 
