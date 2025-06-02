@@ -104,6 +104,19 @@ SETTINGS
     force_primary_key = 1 READONLY,
     max_query_size = '10M' READONLY;
 
+-- internal only user, no need to allow access from anywhere
+CREATE USER paste_sys HOST LOCAL IDENTIFIED WITH no_password
+DEFAULT DATABASE paste
+SETTINGS
+    add_http_cors_header = 1 READONLY,
+    async_insert = 1 READONLY,
+    wait_for_async_insert = 0 READONLY,
+    limit = 1 READONLY,
+    offset = 0 READONLY,
+    max_result_rows = 1 READONLY,
+    force_primary_key = 1 READONLY,
+    max_query_size = '10M' READONLY;
+
 CREATE QUOTA paste
 KEYED BY ip_address
 FOR RANDOMIZED INTERVAL 1 MINUTE MAX query_selects = 100, query_inserts = 1000, written_bytes = '10M',
@@ -111,5 +124,10 @@ FOR RANDOMIZED INTERVAL 1 HOUR MAX query_selects = 1000, query_inserts = 10000, 
 FOR RANDOMIZED INTERVAL 1 DAY MAX query_selects = 5000, query_inserts = 50000, written_bytes = '200M'
 TO paste;
 
-GRANT SELECT, INSERT ON paste.data TO paste;
+CREATE VIEW paste.data_view DEFINER = 'paste_sys' AS SELECT * FROM paste.data WHERE fingerprint = reinterpretAsUInt32(unhex({fingerprint:String})) AND hash = reinterpretAsUInt128(unhex({hash:String})) ORDER BY time LIMIT 1;
+
+GRANT INSERT ON paste.data TO paste;
+GRANT SELECT ON paste.data_view TO paste;
+
+GRANT SELECT ON paste.data TO paste_sys;
 ```
