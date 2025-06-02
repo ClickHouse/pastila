@@ -83,8 +83,8 @@ def load(url):
     r = re.match(r"^(?:(?:(?:(?:(?:https?:)?//)?pastila\.nl)?/)?\?)?([a-f0-9]+)/([a-f0-9]+)(?:#(.+))?$", url)
     if r is None: error('bad url')
     fingerprint, hash_hex, key = r.groups()
-    
-    response = requests.post('https://uzg8q0g12h.eu-central-1.aws.clickhouse.cloud/?user=paste', data=f"SELECT content, is_encrypted FROM data WHERE fingerprint = reinterpretAsUInt32(unhex('{fingerprint}')) AND hash = reinterpretAsUInt128(unhex('{hash_hex}')) ORDER BY time LIMIT 1 FORMAT JSON")
+
+    response = requests.post('https://uzg8q0g12h.eu-central-1.aws.clickhouse.cloud/?user=paste', data=f"SELECT content, is_encrypted FROM data_view(fingerprint = '{fingerprint}', hash = '{hash_hex}') FORMAT JSON")
     if not response.ok: error(f"{response} {response.content}")
 
     j = json.loads(response.content)

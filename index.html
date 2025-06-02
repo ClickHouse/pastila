@@ -268,7 +268,7 @@ async function load(fingerprint, hash, type) {
 
     const response = await fetch(
         clickhouse_url,
-        { method: "POST", body: `SELECT content, is_encrypted, lower(hex(reinterpretAsFixedString(prev_hash))) AS prev_hash, lower(hex(reinterpretAsFixedString(prev_fingerprint))) AS prev_fingerprint FROM data WHERE fingerprint = reinterpretAsUInt32(unhex('${fingerprint}')) AND hash = reinterpretAsUInt128(unhex('${hash}')) ORDER BY time LIMIT 1 FORMAT JSON` });
+        { method: "POST", body: `SELECT content, is_encrypted, lower(hex(reinterpretAsFixedString(prev_hash))) AS prev_hash, lower(hex(reinterpretAsFixedString(prev_fingerprint))) AS prev_fingerprint FROM data_view(fingerprint = '${fingerprint}', hash = '${hash}') FORMAT JSON` });
 
     function onError() {
         show(error);
