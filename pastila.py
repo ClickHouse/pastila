@@ -93,7 +93,7 @@ def load(url: str) -> bytes:
         error(f"invalid url: {url}")
     hash_hex = hash_hex.split(".", maxsplit=1)[0]  # for .diff, .md etc
     key = parsed.fragment
-    if not (is_valid_hex(fingerprint) and is_valid_hex(hash_hex) and key):
+    if not (is_valid_hex(fingerprint) and is_valid_hex(hash_hex)):
         error(f"invalid url: {url}")
 
     query = (
@@ -125,6 +125,8 @@ def load(url: str) -> bytes:
     if not is_encrypted:
         return content.encode("utf-8")
 
+    if not key:
+        error("paste is encrypted, but no key provided in the URL")
     decoded = base64.b64decode(content)
     cipher = Cipher(
         algorithms.AES(base64.b64decode(key)),
