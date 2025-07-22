@@ -76,6 +76,10 @@ def sipHash128(m: bytes) -> str:
     return "".join(s[i : i + 2] for i in range(30, -2, -2))
 
 
+def is_valid_hex(s: str) -> bool:
+    return bool(s) and all(c in "0123456789abcdefABCDEF" for c in s)
+
+
 def error(s: str) -> None:
     sys.stderr.write(f"error: {s}\n")
     sys.exit(1)
@@ -83,10 +87,13 @@ def error(s: str) -> None:
 
 def load(url: str) -> bytes:
     parsed = urlparse(url)
-    fingerprint, hash_hex = parsed.query.split("/", maxsplit=1)
+    try:
+        fingerprint, hash_hex = parsed.query.split("/", maxsplit=1)
+    except ValueError:
+        error(f"invalid url: {url}")
     hash_hex = hash_hex.split(".", maxsplit=1)[0]  # for .diff, .md etc
     key = parsed.fragment
-    if not (fingerprint and hash_hex and key):
+    if not (is_valid_hex(fingerprint) and is_valid_hex(hash_hex) and key):
         error(f"invalid url: {url}")
 
     query = (
@@ -120,7 +127,7 @@ def load(url: str) -> bytes:
 
     decoded = base64.b64decode(content)
     cipher = Cipher(
-        algorithms.AES(base64.b64decode(key.encode("utf-8"))),
+        algorithms.AES(base64.b64decode(key)),
         modes.CTR(b"\x00" * 16),
         backend=default_backend(),
     )
