@@ -292,7 +292,7 @@ async function load(fingerprint, hash, type) {
     if (is_encrypted) {
         encryption.checked = true;
         encryption.setAttribute('disabled', '');
-        key = base64ToBytes(window.location.hash.substring(1));
+        key = base64ToBytes(location.hash.substring(1).replace(/&.*$/, ''));
         content = await decrypt(content, key);
     }
 
@@ -305,7 +305,7 @@ async function load(fingerprint, hash, type) {
         document.body.className = 'markdown';
         document.body.innerHTML = marked.parse(content);
     } else if (type === '.link') {
-        window.location.href = content;
+        location.href = content;
     } else if (type === '.png') {
         await loadQRRenderer();
         let qr_data;
@@ -374,7 +374,7 @@ async function save() {
     }
 
     if (my_request_num == request_num) {
-        history.pushState(null, null, window.location.pathname.replace(/(\?.+)?$/, `?${curr_fingerprint}/${curr_hash}${anchor}`));
+        history.pushState(null, null, location.pathname.replace(/(\?.+)?$/, `?${curr_fingerprint}/${curr_hash}${anchor}`));
         show(check);
         setFavicon();
     }
@@ -395,11 +395,11 @@ function loadJS(src, integrity) {
         } else {
             console.warn('no integrity for', src)
         }
-        script.addEventListener('load', function() { 
+        script.addEventListener('load', function() {
             if (typeof marked !== 'undefined') {
                 marked.setOptions({ gfm: true, breaks: true });
             }
-            resolve(true); 
+            resolve(true);
         });
         document.head.appendChild(script);
     });
@@ -422,11 +422,11 @@ document.getElementById('data').addEventListener('input', event => save());
 
 back.addEventListener('click', (event) => {
     load(prev_fingerprint, prev_hash);
-    history.pushState(null, null, window.location.pathname.replace(/(\?.+)?$/, `?${curr_fingerprint}/${curr_hash}#${anchorkey}`));
+    history.pushState(null, null, location.pathname.replace(/(\?.+)?$/, `?${curr_fingerprint}/${curr_hash}#${anchorkey}`));
 });
 
 function restore() {
-    const components = window.location.search.match(/^\?([0-9a-f]{8})\/([0-9a-f]{32})(\.md|\.markdown|\.html?|\.link|\.png)?/);
+    const components = location.search.match(/^\?([0-9a-f]{8})\/([0-9a-f]{32})(\.md|\.markdown|\.html?|\.link|\.png)?/);
     if (components) load(components[1], components[2], components[3]);
 }
 
@@ -497,8 +497,18 @@ window.onpopstate = function(event) {
 
 restore();
 
+if (location.hash.match('&nowrap')) {
+    document.getElementById('wrap').checked = false;
+}
+
 function updateTextWrap() {
-    document.getElementById('data').style.whiteSpace = document.getElementById('wrap').checked ? 'pre-wrap' : 'pre';
+    const wrap = document.getElementById('wrap').checked;
+    document.getElementById('data').style.whiteSpace = wrap ? 'pre-wrap' : 'pre';
+    if (wrap) {
+        location.hash = location.hash.replace('&nowrap', '');
+    } else if (!location.hash.match('&nowrap')) {
+        location.hash += '&nowrap';
+    }
 }
 document.getElementById('wrap').addEventListener('change', e => updateTextWrap());
 updateTextWrap();
