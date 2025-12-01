@@ -119,9 +119,9 @@ SETTINGS
 
 CREATE QUOTA paste
 KEYED BY ip_address
-FOR RANDOMIZED INTERVAL 1 MINUTE MAX query_selects = 100, query_inserts = 1000, written_bytes = '10M',
-FOR RANDOMIZED INTERVAL 1 HOUR MAX query_selects = 1000, query_inserts = 10000, written_bytes = '50M',
-FOR RANDOMIZED INTERVAL 1 DAY MAX query_selects = 5000, query_inserts = 50000, written_bytes = '200M'
+FOR RANDOMIZED INTERVAL 1 MINUTE MAX query_selects = 100, query_inserts = 1000,
+FOR RANDOMIZED INTERVAL 1 HOUR MAX query_selects = 1000, query_inserts = 10000,
+FOR RANDOMIZED INTERVAL 1 DAY MAX query_selects = 5000, query_inserts = 50000, written_bytes = '500M'
 TO paste;
 
 CREATE VIEW paste.data_view DEFINER = 'paste_sys' AS SELECT * FROM paste.data WHERE fingerprint = reinterpretAsUInt32(unhex({fingerprint:String})) AND hash = reinterpretAsUInt128(unhex({hash:String})) ORDER BY time LIMIT 1;
