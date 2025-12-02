@@ -1,0 +1,6 @@
+# Local development
+clickhouse-data/
+config.local.js
+
+# Docker
+docker-compose.override.yml
