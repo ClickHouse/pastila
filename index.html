@@ -131,7 +131,7 @@
 </head>
 <body>
 
-<div id="public-warning" class="public-warning">
+<div id="public-warning" class="public-warning" hidden>
     ⚠️ This is a public instance of Pastila. Please refrain from using it for corporate or sensitive data.
 </div>
 <div id="panel">
@@ -158,6 +158,7 @@ const decoder = new TextDecoder;
 const internal_pastila = localStorage.getItem('internal_pastila');
 if (internal_pastila) {
     public_warning = document.getElementById('public-warning');
+    public_warning.hidden = false;
     // Clear the existing text
     public_warning.innerText = "⚠️ This is a public instance of Pastila. Please use ";
 
