@@ -25,6 +25,7 @@ Features:
   previous version of the data is available by clicking the "back" button in bottom right corner;
 - Added Encryption option to encrypt data in browser before inserting into ClickHouse database,
   encryption key is kept in anchor tag which never leaves the user's browser.
+- Burn after reading: documents can be viewed only once, then automatically deleted - all intermediate versions are also deleted when enabling this feature.
 
 ## Motivation
 
@@ -34,6 +35,8 @@ Nevertheless, it is always important to test the system in corner cases
 and unusual scenarios to find potential flaws and to explore new possibilities.
 
 ## Contributing
+
+For local development setup with Docker, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Please send a pull request to
 https://github.com/ClickHouse/pastila
@@ -82,6 +85,7 @@ CREATE TABLE paste.data
     prev_fingerprint_hex String EPHEMERAL '',
     prev_hash_hex String EPHEMERAL '',
     is_encrypted UInt8,
+    burn_after_reading UInt8 DEFAULT 0,
 
     CONSTRAINT length CHECK length(content) < 10 * 1024 * 1024,
     CONSTRAINT hash_is_correct CHECK sipHash128(content) = reinterpretAsFixedString(hash),
@@ -126,8 +130,9 @@ TO paste;
 
 CREATE VIEW paste.data_view DEFINER = 'paste_sys' AS SELECT * FROM paste.data WHERE fingerprint = reinterpretAsUInt32(unhex({fingerprint:String})) AND hash = reinterpretAsUInt128(unhex({hash:String})) ORDER BY time LIMIT 1;
 
+-- Grant permissions
 GRANT INSERT ON paste.data TO paste;
 GRANT SELECT ON paste.data_view TO paste;
-
+GRANT ALTER UPDATE ON paste.data TO paste;
 GRANT SELECT ON paste.data TO paste_sys;
 ```
