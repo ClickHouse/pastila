@@ -15,21 +15,10 @@
             box-sizing: border-box;
         }
 
-        .public-warning {
-            height: fit-content;
-            background: #ffc;
-            color: #c00;
-            padding: 0.75em 1em;
-            text-align: center;
-            font-weight: bold;
-            border-bottom: 1px solid #c00;
-            font-size: 1.1em;
-        }
-
         body {
             font-family: sans-serif;
             display: grid;
-            grid-template-rows: auto auto 1fr;
+            grid-template-rows: auto 1fr;
         }
 
         pre, code, textarea {
@@ -39,7 +28,6 @@
         #panel {
             padding: 0.5em;
             background-color: #EEE;
-            height: fit-content;
         }
 
         #encryption {
@@ -131,9 +119,6 @@
 </head>
 <body>
 
-<div id="public-warning" class="public-warning" hidden>
-    ⚠️ This is a public instance of Pastila. Please refrain from using it for corporate or sensitive data.
-</div>
 <div id="panel">
     <a class="about" href="https://github.com/ClickHouse/pastila">About</a>
     <label><input id="encryption" checked="true" type="checkbox">&nbsp;end-to-end encryption</input></label>
@@ -155,26 +140,51 @@ const decoder = new TextDecoder;
 
 // When internal pastila link is set, show a warning dialog to make sure user knows
 // they are using a public instance.
-const internal_pastila = localStorage.getItem('internal_pastila');
-if (internal_pastila) {
-    public_warning = document.getElementById('public-warning');
-    public_warning.hidden = false;
-    // Clear the existing text
-    public_warning.innerText = "⚠️ This is a public instance of Pastila. Please use ";
+(function() {
+    const internal_pastila = localStorage.getItem('internal_pastila');
+    if (internal_pastila) {
+        // Create overlay
+        const overlay = document.createElement('div');
+        overlay.style.position = 'fixed';
+        overlay.style.top = 0;
+        overlay.style.left = 0;
+        overlay.style.width = '100vw';
+        overlay.style.height = '100vh';
+        overlay.style.background = 'rgba(0,0,0,0.7)';
+        overlay.style.zIndex = 9999;
+        overlay.style.display = 'flex';
+        overlay.style.alignItems = 'center';
+        overlay.style.justifyContent = 'center';
 
-    // Create the link element
-    const link = document.createElement('a');
-    link.href = internal_pastila;
-    link.textContent = internal_pastila;
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
+        // Create modal
+        const modal = document.createElement('div');
+        modal.style.background = '#fff';
+        modal.style.borderRadius = '12px';
+        modal.style.boxShadow = '0 4px 32px rgba(0,0,0,0.2)';
+        modal.style.padding = '2em 2.5em';
+        modal.style.maxWidth = '90vw';
+        modal.style.textAlign = 'center';
+        modal.style.fontFamily = 'sans-serif';
+        modal.innerHTML = `
+            <h2 style="margin-top:0;color:#c00;">Notice</h2>
+            <p style="font-size:1.2em;">
+                This is a public instance of pastila.<br>
+                Please use <a href="${internal_pastila}" style="color:#08F;word-break:break-all;">${internal_pastila}</a> link for sharing internally.
+            </p>
+            <button id="pastila-ack-btn" style="margin-top:1.5em;padding:0.5em 1.5em;font-size:1em;border-radius:6px;border:none;background:#08F;color:#fff;cursor:pointer;">
+                Proceed anyway
+            </button>
+        `;
 
-    // Append the link to the warning
-    public_warning.appendChild(link);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
 
-    // Add the rest of the text
-    public_warning.appendChild(document.createTextNode(" for corporate or sensitive data."));
-}
+        // Add event listener to button to remove overlay
+        document.getElementById('pastila-ack-btn').onclick = function() {
+            overlay.remove();
+        };
+    }
+})();
 
 function sipHash128(m) {
     function rotl(v, offset, bits) {
