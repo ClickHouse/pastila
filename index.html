@@ -7,6 +7,7 @@
     <meta charset="UTF-8">
     <link id="icon" rel="icon" href="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=">
     <title>Paste</title>
+    <script src="config.js"></script>
     <style>
         html, body, textarea {
             width: 100%;
@@ -145,6 +146,7 @@
     <a class="about" href="https://github.com/ClickHouse/pastila">About</a>
     <label><input id="encryption" checked="true" type="checkbox">&nbsp;end-to-end encryption</input></label>
     <label><input id="wrap" checked="true" type="checkbox">&nbsp;text wrap</input></label>
+    <label><input id="burn" type="checkbox">&nbsp;burn after reading</input></label>
 </div>
 
 <textarea id="data" spellcheck="false" autofocus></textarea>
@@ -155,7 +157,7 @@
 <a class="status" id="back">⎌</a>
 <script type="text/javascript">
 
-const clickhouse_url = "https://uzg8q0g12h.eu-central-1.aws.clickhouse.cloud/?user=paste";
+const clickhouse_url = window.CLICKHOUSE_URL || "https://uzg8q0g12h.eu-central-1.aws.clickhouse.cloud/?user=paste";
 
 const encoder = new TextEncoder;
 const decoder = new TextDecoder;
@@ -313,7 +315,7 @@ async function load(fingerprint, hash, type) {
 
     const response = await fetch(
         clickhouse_url,
-        { method: "POST", body: `SELECT content, is_encrypted, lower(hex(reinterpretAsFixedString(prev_hash))) AS prev_hash, lower(hex(reinterpretAsFixedString(prev_fingerprint))) AS prev_fingerprint FROM data_view(fingerprint = '${fingerprint}', hash = '${hash}') FORMAT JSON` });
+        { method: "POST", body: `SELECT content, is_encrypted, burn_after_reading, lower(hex(reinterpretAsFixedString(prev_hash))) AS prev_hash, lower(hex(reinterpretAsFixedString(prev_fingerprint))) AS prev_fingerprint FROM data_view(fingerprint = '${fingerprint}', hash = '${hash}') FORMAT JSON` });
 
     function onError() {
         show(error);
@@ -327,6 +329,7 @@ async function load(fingerprint, hash, type) {
     const result = json.data[0];
     let content = result.content;
     const is_encrypted = result.is_encrypted;
+    const burn_after_reading = result.burn_after_reading;
 
     prev_hash = result.prev_hash;
     prev_fingerprint = result.prev_fingerprint;
@@ -343,6 +346,25 @@ async function load(fingerprint, hash, type) {
 
     // Set the content in any case (even if rendering as HTML/MD/QR, we fall back to plaintext view anyway).
     document.getElementById('data').value = content;
+
+    // If burn after reading, make textarea read-only and disable saving
+    if (burn_after_reading) {
+        const textarea = document.getElementById('data');
+        textarea.setAttribute('readonly', 'readonly');
+        textarea.style.backgroundColor = '#2a1a1a';
+        textarea.style.color = '#ff9999';
+        textarea.style.border = '2px solid #ff0000';
+
+        // Disable checkboxes
+        document.getElementById('burn').disabled = true;
+        document.getElementById('encryption').disabled = true;
+        document.getElementById('wrap').disabled = true;
+
+        // Show warning
+        if (!type || type === '') {
+            alert('⚠️ This document will be burned after reading. Editing is disabled.');
+        }
+    }
 
     if (type === '.html' || type == '.htm') {
         if (document.documentURI.indexOf("96d540560fc9de34f2bf24d5c2b9d62a.html") > 0 ||confirm("⚠️ The pastila link will render as html, which may be unsafe. Press Cancel to view as plain text.")) {
@@ -378,10 +400,25 @@ async function load(fingerprint, hash, type) {
     }
 
     setFavicon();
+
+    // If burn after reading is enabled, delete immediately after loading
+    if (burn_after_reading) {
+        // Fire and forget - don't await, delete happens in background
+        fetch(clickhouse_url, {
+            method: "POST",
+            body: `DELETE FROM data WHERE fingerprint = reinterpretAsUInt32(unhex('${fingerprint}')) AND hash = reinterpretAsUInt128(unhex('${hash}'))`
+        }).catch(err => console.error('Failed to delete burn-after-reading document:', err));
+    }
 }
 
 
 async function save() {
+    // Don't save if textarea is readonly (burn-after-reading view mode)
+    const textarea = document.getElementById('data');
+    if (textarea.hasAttribute('readonly')) {
+        return;
+    }
+
     const my_request_num = ++request_num;
 
     show(wait);
@@ -389,10 +426,12 @@ async function save() {
     prev_fingerprint = curr_fingerprint;
     prev_hash = curr_hash;
 
-    let text = document.getElementById('data').value;
+    let text = textarea.value;
     let anchor = '';
 
     is_encrypted = encryption.checked;
+    const burn_after_reading = document.getElementById('burn').checked;
+
     if (is_encrypted) {
         const key_bytes = crypto.getRandomValues(new Uint8Array(16));
         text = await encrypt(text, key_bytes);
@@ -407,14 +446,15 @@ async function save() {
         clickhouse_url,
         {
             method: "POST",
-            body: "INSERT INTO data (fingerprint_hex, hash_hex, prev_fingerprint_hex, prev_hash_hex, content, is_encrypted) FORMAT JSONEachRow " + JSON.stringify(
+            body: "INSERT INTO data (fingerprint_hex, hash_hex, prev_fingerprint_hex, prev_hash_hex, content, is_encrypted, burn_after_reading) FORMAT JSONEachRow " + JSON.stringify(
             {
                 fingerprint_hex: curr_fingerprint,
                 hash_hex: curr_hash,
                 prev_fingerprint_hex: prev_fingerprint,
                 prev_hash_hex: prev_hash,
                 content: text,
-                is_encrypted: is_encrypted
+                is_encrypted: is_encrypted,
+                burn_after_reading: burn_after_reading ? 1 : 0
             })
         });
 
@@ -469,6 +509,25 @@ function loadQRRenderer() {
 }
 
 document.getElementById('data').addEventListener('input', event => save());
+
+// Handle burn after reading checkbox
+document.getElementById('burn').addEventListener('change', async (event) => {
+    if (event.target.checked) {
+        // Delete ALL previous versions with the same fingerprint (includes all intermediate edits)
+        if (curr_fingerprint) {
+            await fetch(clickhouse_url, {
+                method: "POST",
+                body: `DELETE FROM data WHERE fingerprint = reinterpretAsUInt32(unhex('${curr_fingerprint}'))`
+            });
+        }
+
+        // Save with burn flag (and all future saves will also have burn flag)
+        await save();
+
+        // Show message
+        alert('🔥 Burn-after-reading enabled. All intermediate versions deleted. All future edits will also burn after reading.');
+    }
+});
 
 back.addEventListener('click', (event) => {
     load(prev_fingerprint, prev_hash);
