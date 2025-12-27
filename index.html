@@ -349,11 +349,12 @@ async function load(fingerprint, hash, type) {
         encryption.checked = true;
         encryption.setAttribute('disabled', '');
         let hash_params = location.hash.substring(1);
+        hash_params = hash_params.replace(/&.*$/, '')
         const is_gcm = hash_params.endsWith('GCM');
         if (is_gcm) {
             hash_params = hash_params.slice(0, -3); // Remove 'GCM' suffix
         }
-        key = base64ToBytes(hash_params.replace(/&.*$/, ''));
+        key = base64ToBytes(hash_params);
 
         try {
             if (is_gcm) {
