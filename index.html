@@ -276,22 +276,33 @@ function show(what) {
 }
 
 async function encrypt(content, key) {
-    const aes_key = await window.crypto.subtle.importKey('raw', key, { name: 'AES-CTR', length: 128 }, false, ['encrypt']);
+    const aes_key = await window.crypto.subtle.importKey('raw', key, { name: 'AES-GCM', length: 128 }, false, ['encrypt']);
 
     let plaintext = encoder.encode(content);
-    let counter = new Uint8Array(16); /// This is ok as long as the key is not reused.
-    let encrypted = new Uint8Array(await window.crypto.subtle.encrypt({ name: "AES-CTR", counter: counter, length: 128 }, aes_key, plaintext));
+    let iv = key.slice(0, 12); /// Use first 12 bytes of key as IV. This is ok as long as the key is not reused.
+    let encrypted = new Uint8Array(await window.crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, aes_key, plaintext));
 
     return bytesToBase64(encrypted);
 }
 
-async function decrypt(content, key) {
+async function decrypt_ctr(content, key) {
     const aes_key = await window.crypto.subtle.importKey('raw', key, { name: 'AES-CTR', length: 128 }, false, ['decrypt']);
 
     let ciphertext = base64ToBytes(content);
 
     let counter = new Uint8Array(16); /// This is ok as long as the key is not reused.
     let decrypted = new Uint8Array(await window.crypto.subtle.decrypt({ name: "AES-CTR", counter: counter, length: 128 }, aes_key, ciphertext));
+
+    return decoder.decode(decrypted);
+}
+
+async function decrypt_gcm(content, key) {
+    const aes_key = await window.crypto.subtle.importKey('raw', key, { name: 'AES-GCM', length: 128 }, false, ['decrypt']);
+
+    let ciphertext = base64ToBytes(content);
+
+    let iv = key.slice(0, 12); /// Use first 12 bytes of key as IV. This is ok as long as the key is not reused.
+    let decrypted = new Uint8Array(await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, aes_key, ciphertext));
 
     return decoder.decode(decrypted);
 }
@@ -337,8 +348,24 @@ async function load(fingerprint, hash, type) {
     if (is_encrypted) {
         encryption.checked = true;
         encryption.setAttribute('disabled', '');
-        key = base64ToBytes(location.hash.substring(1).replace(/&.*$/, ''));
-        content = await decrypt(content, key);
+        let hash_params = location.hash.substring(1);
+        const is_gcm = hash_params.endsWith('GCM');
+        if (is_gcm) {
+            hash_params = hash_params.slice(0, -3); // Remove 'GCM' suffix
+        }
+        key = base64ToBytes(hash_params.replace(/&.*$/, ''));
+
+        try {
+            if (is_gcm) {
+                content = await decrypt_gcm(content, key);
+            } else {
+                content = await decrypt_ctr(content, key);
+            }
+        } catch (e) {
+            show(error);
+            alert("Decryption failed - wrong key or corrupted data");
+            throw new Error("Decryption failed - wrong key or corrupted data");
+        }
     }
 
     // Set the content in any case (even if rendering as HTML/MD/QR, we fall back to plaintext view anyway).
@@ -396,7 +423,7 @@ async function save() {
     if (is_encrypted) {
         const key_bytes = crypto.getRandomValues(new Uint8Array(16));
         text = await encrypt(text, key_bytes);
-        anchor = '#' + bytesToBase64(key_bytes);
+        anchor = '#' + bytesToBase64(key_bytes) + 'GCM';
         encryption.setAttribute('disabled', '');
     }
 
