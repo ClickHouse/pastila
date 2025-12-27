@@ -164,7 +164,7 @@ const decoder = new TextDecoder;
 // they are using a public instance.
 const internal_pastila = localStorage.getItem('internal_pastila');
 if (internal_pastila) {
-    public_warning = document.getElementById('public-warning');
+    const public_warning = document.getElementById('public-warning');
     public_warning.className = 'public-warning public-warning-shown';
     // Clear the existing text
     public_warning.innerText = "⚠️ This is a public instance of Pastila. Please use ";
@@ -349,12 +349,12 @@ async function load(fingerprint, hash, type) {
         encryption.checked = true;
         encryption.setAttribute('disabled', '');
         let hash_params = location.hash.substring(1);
-        hash_params = hash_params.replace(/&.*$/, '')
+        hash_params = hash_params.replace(/&.*$/, '');
         const is_gcm = hash_params.endsWith('GCM');
         if (is_gcm) {
             hash_params = hash_params.slice(0, -3); // Remove 'GCM' suffix
         }
-        key = base64ToBytes(hash_params);
+        const key = base64ToBytes(hash_params);
 
         try {
             if (is_gcm) {
@@ -420,7 +420,7 @@ async function save() {
     let text = document.getElementById('data').value;
     let anchor = '';
 
-    is_encrypted = encryption.checked;
+    const is_encrypted = encryption.checked;
     if (is_encrypted) {
         const key_bytes = crypto.getRandomValues(new Uint8Array(16));
         text = await encrypt(text, key_bytes);
@@ -471,7 +471,7 @@ function loadJS(src, integrity) {
             script.crossOrigin = 'anonymous';
             script.integrity = integrity;
         } else {
-            console.warn('no integrity for', src)
+            console.warn('no integrity for', src);
         }
         script.addEventListener('load', function() {
             if (typeof marked !== 'undefined') {
@@ -498,9 +498,10 @@ function loadQRRenderer() {
 
 document.getElementById('data').addEventListener('input', event => save());
 
+// Only for non-encrypted links
 back.addEventListener('click', (event) => {
     load(prev_fingerprint, prev_hash);
-    history.pushState(null, null, location.pathname.replace(/(\?.+)?$/, `?${curr_fingerprint}/${curr_hash}#${anchorkey}`));
+    history.pushState(null, null, location.pathname.replace(/(\?.+)?$/, `?${prev_fingerprint}/${prev_hash}`));
 });
 
 function restore() {
