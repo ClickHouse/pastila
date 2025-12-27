@@ -349,7 +349,7 @@ async function load(fingerprint, hash, type) {
         encryption.checked = true;
         encryption.setAttribute('disabled', '');
         let hash_params = location.hash.substring(1);
-        hash_params = hash_params.replace(/&.*$/, '')
+        hash_params = hash_params.replace(/&.*$/, '');
         const is_gcm = hash_params.endsWith('GCM');
         if (is_gcm) {
             hash_params = hash_params.slice(0, -3); // Remove 'GCM' suffix
@@ -471,7 +471,7 @@ function loadJS(src, integrity) {
             script.crossOrigin = 'anonymous';
             script.integrity = integrity;
         } else {
-            console.warn('no integrity for', src)
+            console.warn('no integrity for', src);
         }
         script.addEventListener('load', function() {
             if (typeof marked !== 'undefined') {
