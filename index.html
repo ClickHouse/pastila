@@ -164,7 +164,7 @@ const decoder = new TextDecoder;
 // they are using a public instance.
 const internal_pastila = localStorage.getItem('internal_pastila');
 if (internal_pastila) {
-    public_warning = document.getElementById('public-warning');
+    const public_warning = document.getElementById('public-warning');
     public_warning.className = 'public-warning public-warning-shown';
     // Clear the existing text
     public_warning.innerText = "⚠️ This is a public instance of Pastila. Please use ";
@@ -354,7 +354,7 @@ async function load(fingerprint, hash, type) {
         if (is_gcm) {
             hash_params = hash_params.slice(0, -3); // Remove 'GCM' suffix
         }
-        key = base64ToBytes(hash_params);
+        const key = base64ToBytes(hash_params);
 
         try {
             if (is_gcm) {
@@ -420,7 +420,7 @@ async function save() {
     let text = document.getElementById('data').value;
     let anchor = '';
 
-    is_encrypted = encryption.checked;
+    const is_encrypted = encryption.checked;
     if (is_encrypted) {
         const key_bytes = crypto.getRandomValues(new Uint8Array(16));
         text = await encrypt(text, key_bytes);
