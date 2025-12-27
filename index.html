@@ -498,9 +498,10 @@ function loadQRRenderer() {
 
 document.getElementById('data').addEventListener('input', event => save());
 
+// Only for non-encrypted links
 back.addEventListener('click', (event) => {
     load(prev_fingerprint, prev_hash);
-    history.pushState(null, null, location.pathname.replace(/(\?.+)?$/, `?${curr_fingerprint}/${curr_hash}#${anchorkey}`));
+    history.pushState(null, null, location.pathname.replace(/(\?.+)?$/, `?${prev_fingerprint}/${prev_hash}`));
 });
 
 function restore() {
