@@ -97,7 +97,7 @@ DEFAULT DATABASE paste
 SETTINGS
     add_http_cors_header = 1 READONLY,
     async_insert = 1 READONLY,
-    wait_for_async_insert = 0 READONLY,
+    wait_for_async_insert = 1 READONLY,
     limit = 1 READONLY,
     offset = 0 READONLY,
     max_result_rows = 1 READONLY,
@@ -110,7 +110,7 @@ DEFAULT DATABASE paste
 SETTINGS
     add_http_cors_header = 1 READONLY,
     async_insert = 1 READONLY,
-    wait_for_async_insert = 0 READONLY,
+    wait_for_async_insert = 1 READONLY,
     limit = 1 READONLY,
     offset = 0 READONLY,
     max_result_rows = 1 READONLY,
