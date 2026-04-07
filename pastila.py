@@ -196,7 +196,7 @@ def parse_args() -> argparse.Namespace:
         "pastila_url",
         nargs="?",
         help="Full pastila URL to download the data. "
-        "When given, the script post content to stdout.",
+        "When given, the script posts content to stdout.",
     )
     return parser.parse_args()
 

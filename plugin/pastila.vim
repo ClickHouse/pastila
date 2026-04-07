@@ -27,8 +27,12 @@ function! s:PastilaUpload() range
         echohl None
     else
         let l:url = substitute(l:output, '[\r\n]\+$', '', '')
-        let @+ = l:url
-        echo 'Pastila: ' . l:url . ' (copied to clipboard)'
+        if has('clipboard') || has('unnamedplus')
+            let @+ = l:url
+            echo 'Pastila: ' . l:url . ' (copied to clipboard)'
+        else
+            echo 'Pastila: ' . l:url
+        endif
     endif
 endfunction
 
