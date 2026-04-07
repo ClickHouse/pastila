@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+import argparse
 import base64
 import json
 import os
@@ -85,7 +86,7 @@ def error(s: str) -> None:
     sys.exit(1)
 
 
-def load(url: str) -> bytes:
+def load(url: str, clickhouse_url: str) -> bytes:
     parsed = urlparse(url)
     try:
         fingerprint, hash_hex = parsed.query.split("/", maxsplit=1)
@@ -102,7 +103,7 @@ def load(url: str) -> bytes:
     )
 
     req = Request(
-        "https://uzg8q0g12h.eu-central-1.aws.clickhouse.cloud/?user=paste",
+        clickhouse_url,
         data=query.encode("utf-8"),
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         method="POST",
@@ -116,7 +117,7 @@ def load(url: str) -> bytes:
     j = json.loads(body)
     if j["rows"] != 1:
         error("paste not found")
-    # if 'statistics' in j: sys.stderr.write(f"{j['statistics']}")
+
     content, is_encrypted = (
         j["data"][0]["content"],
         j["data"][0]["is_encrypted"],
@@ -138,7 +139,7 @@ def load(url: str) -> bytes:
     return decrypted
 
 
-def save(data: bytes) -> str:
+def save(data: bytes, pastila_prefix: str, clickhouse_url: str) -> str:
     key = os.urandom(16)
     url_suffix = ""
     cipher = Cipher(
@@ -161,7 +162,7 @@ def save(data: bytes) -> str:
         }
     )
     req = Request(
-        "https://uzg8q0g12h.eu-central-1.aws.clickhouse.cloud/?user=paste",
+        clickhouse_url,
         data="INSERT INTO data (fingerprint_hex, hash_hex, content, is_encrypted) "
         f"FORMAT JSONEachRow {payload}".encode("utf-8"),
         headers={"Content-Type": "application/x-www-form-urlencoded"},
@@ -173,16 +174,39 @@ def save(data: bytes) -> str:
     except Exception as e:
         error(f"failed to save paste: {e}")
 
-    return f"https://pastila.nl/?{fingerprint}/{h}{url_suffix}"
+    return f"{pastila_prefix}?{fingerprint}/{h}{url_suffix}"
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Upload to or download from pastila.nl",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--pastila-prefix",
+        help="Hostname URL to use when uploading",
+        default="https://pastila.nl/",
+    )
+    parser.add_argument(
+        "--clickhouse-url",
+        help="ClickHouse URL to query the data table",
+        default="https://uzg8q0g12h.eu-central-1.aws.clickhouse.cloud/?user=paste",
+    )
+    parser.add_argument(
+        "pastila_url",
+        nargs="?",
+        help="Full pastila URL to download the data. "
+        "When given, the script post content to stdout.",
+    )
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 1:
-        data = sys.stdin.buffer.read()
-        print(save(data))
-    elif len(sys.argv) == 2:
-        data = load(sys.argv[1])
+    args = parse_args()
+    if args.pastila_url:
+        data = load(args.pastila_url, args.clickhouse_url)
         sys.stdout.buffer.write(data)
-    else:
-        print("usage: pastila.py [url]")
-        sys.exit(1)
+        sys.exit(0)
+
+    data = sys.stdin.buffer.read()
+    print(save(data, args.pastila_prefix, args.clickhouse_url))
