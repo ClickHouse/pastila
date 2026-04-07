@@ -1,0 +1,67 @@
+*pastila.txt*  Vim plugin for pastila.nl — encrypted paste service
+
+CONTENTS                                                    *pastila-contents*
+
+    1. Introduction .......................... |pastila-introduction|
+    2. Requirements .......................... |pastila-requirements|
+    3. Installation .......................... |pastila-installation|
+    4. Commands .............................. |pastila-commands|
+    5. Options ............................... |pastila-options|
+
+==============================================================================
+1. INTRODUCTION                                         *pastila-introduction*
+
+Pastila is a Vim plugin for uploading and downloading encrypted pastes
+via https://pastila.nl, a paste service powered by ClickHouse.
+
+All pastes are end-to-end encrypted by default. The encryption key is
+part of the URL fragment and never sent to the server.
+
+==============================================================================
+2. REQUIREMENTS                                         *pastila-requirements*
+
+- python3 in $PATH
+- Python `cryptography` package: >
+    pip install cryptography
+<
+
+==============================================================================
+3. INSTALLATION                                         *pastila-installation*
+
+Using a plugin manager (e.g. vim-plug): >
+    Plug 'ClickHouse/pastila'
+
+==============================================================================
+4. COMMANDS                                                *pastila-commands*
+
+                                                            *:PastilaUpload*
+:[range]PastilaUpload
+    Upload [range] lines (default: entire buffer) to pastila.nl.
+    The returned URL is copied to the system clipboard (|quoteplus|)
+    and echoed in the command line.
+
+    Examples: >
+        :PastilaUpload           " upload entire buffer
+        :'<,'>PastilaUpload      " upload visual selection
+        :10,20PastilaUpload      " upload lines 10-20
+<
+                                                          *:PastilaDownload*
+:PastilaDownload {url}
+    Download a paste by its full pastila URL (including the #key
+    fragment for encrypted pastes). Opens the content in a new
+    scratch buffer.
+
+    Example: >
+        :PastilaDownload https://pastila.nl/?abcd1234/deadbeef...#key
+<
+
+==============================================================================
+5. OPTIONS                                                  *pastila-options*
+
+                                                          *g:loaded_pastila*
+g:loaded_pastila
+    Set by the plugin after loading. Unlet it before re-sourcing
+    to reload the plugin (see |pastila-installation|).
+
+==============================================================================
+vim:tw=78:ft=help:norl:
