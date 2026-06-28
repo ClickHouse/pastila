@@ -505,8 +505,14 @@ back.addEventListener('click', (event) => {
 });
 
 function restore() {
-    const components = location.search.match(/^\?([0-9a-f]{8})\/([0-9a-f]{32})(\.md|\.markdown|\.html?|\.link|\.png)?/);
-    if (components) load(components[1], components[2], components[3]);
+    const components = location.search.match(/^\?([0-9a-f]{8})\/([0-9a-f]{32})(\.md|\.markdown|\.html?|\.link|\.png|\.claude\.jsonl)?/);
+    if (!components) return;
+    if (components[3] === '.claude.jsonl') {
+        /// The Claude session viewer is a separate page, loaded only when needed.
+        location.replace('session.html' + location.search + location.hash);
+        return;
+    }
+    load(components[1], components[2], components[3]);
 }
 
 function setFavicon() {
