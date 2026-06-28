@@ -1,0 +1,1196 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<!-- See https://github.com/ClickHouse/pastila -->
+<!--
+    Claude session viewer for pastila (https://github.com/ClickHouse/pastila/issues/47).
+
+    This is a separate page so that the main pastila page stays compact: it is only
+    loaded when a `.claude.jsonl` link is opened (index.html redirects here).
+
+    It loads a paste by fingerprint/hash, decrypts it if needed, parses the Claude Code
+    session (JSONL, one JSON record per line) and renders it in the same manner as the
+    session viewer at https://github.com/ClickHouse/alexeyprompts
+-->
+
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude session</title>
+<link id="icon" rel="icon" href="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.0.2/marked.min.js"
+    integrity="sha512-hzyXu3u+VDu/7vpPjRKFp9w33Idx7pWWNazPm+aCMRu26yZXFCby1gn1JxevVv3LDwnSbyKrvLo3JNdi4Qx1ww=="
+    crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/ansi_up@5.2.1/ansi_up.js"
+    integrity="sha512-Ta9qi9krE5P0PyQ6Y3Wau9hDpanfWQgvsptNSLK1L6CrUgXX3a0gVV2lPMLDuJ/E5tCB6eCw9x1TQKGooyVeCQ=="
+    crossorigin="anonymous"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #111; }
+::-webkit-scrollbar-thumb { background: #333; }
+::-webkit-scrollbar-thumb:hover { background: #444; }
+html { scrollbar-color: #333 #111; }
+
+body {
+    background: #001018;
+    color: #ccc;
+    --text: #ccc;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+a, a:visited { color: #7c9cff; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.loading { text-align: center; padding: 40px; color: #888; }
+.error-box {
+    background: rgba(220, 53, 69, 0.15);
+    border: 1px solid rgba(220, 53, 69, 0.4);
+    color: #dc3545;
+    padding: 12px 16px;
+    margin: 16px;
+}
+.hidden { display: none !important; }
+
+/* Session meta line (scrolls away above the sticky filter bar) */
+.transcript-meta {
+    font-size: 12px;
+    color: #888;
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    padding: 8px 16px;
+    background: #111;
+    border-bottom: 1px solid #222;
+}
+.transcript-meta .label { color: #888; }
+.transcript-meta .val { color: #ccc; }
+
+/* Sticky filter bar */
+.filters-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 16px;
+    background: #111;
+    border-bottom: 1px solid #222;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+}
+.filters-toggles { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+#scroll-metrics { display: none; color: #777; gap: 10px; flex-wrap: wrap; }
+#scroll-metrics .val { color: #aaa; }
+
+.transcript-search { display: flex; align-items: center; gap: 4px; }
+.transcript-search input {
+    width: 150px;
+    padding: 2px 6px;
+    background: #000;
+    border: 1px solid #333;
+    color: #ccc;
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+}
+.transcript-search input:focus { border-color: #f88; }
+#transcript-search-count { font-size: 11px; color: #777; min-width: 30px; display: none; }
+.transcript-search.active #transcript-search-count { display: inline; }
+.transcript-search-nav { display: none; }
+.transcript-search.active .transcript-search-nav { display: inline-flex; }
+.transcript-search-nav button {
+    background: none;
+    border: 1px solid #333;
+    color: #888;
+    font-size: 11px;
+    padding: 1px 5px;
+    cursor: pointer;
+    font-family: inherit;
+}
+.transcript-search-nav button:hover { color: #ccc; border-color: #555; }
+mark.search-hit { background: #665500; color: #fff; border-radius: 2px; }
+mark.search-hit.current { background: #f88; color: #000; }
+
+.filters-bar label { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #888; cursor: pointer; user-select: none; }
+.filters-bar input[type="checkbox"] { accent-color: #f88; }
+
+/* Transcript — terminal look */
+.messages {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    background: #001018;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #e0e0e0;
+    min-height: 100vh;
+}
+
+.term-block { border-bottom: 1px solid #111; padding: 0 0.5em 1em 0.5em; }
+.term-block.sidechain { opacity: 0.5; }
+.term-content.expanded { max-height: none !important; overflow-y: auto !important; }
+
+.term-block.type-user { background: #222; font-size: 120%; padding-bottom: 0; }
+
+#sticky-prompt {
+    position: fixed;
+    left: 0;
+    right: 0;
+    z-index: 10;
+    background: #222;
+    font-size: 120%;
+    padding: 0 0.5em;
+    border-bottom: 1px solid #111;
+    display: none;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    line-height: 1.5;
+}
+#sticky-prompt .term-prefix { color: #f88; font-weight: bold; }
+#sticky-prompt .term-content { color: #fff; font-weight: bold; max-height: 4.5em; overflow: hidden; cursor: pointer; padding: 0 0.5rem; }
+#sticky-prompt .term-content.expanded { max-height: none !important; overflow-y: auto !important; }
+#sticky-prompt .term-nav { display: flex; justify-content: flex-end; gap: 12px; padding: 2px 0.5rem; font-size: 11px; }
+#sticky-prompt .term-nav span { color: #555; cursor: pointer; user-select: none; }
+#sticky-prompt .term-nav span:hover { color: #999; }
+#sticky-prompt .term-nav span.hidden { display: none; }
+#sticky-prompt .term-meta-line { text-align: right; padding: 0 0.5rem; font-size: 11px; }
+#sticky-prompt .term-meta { display: inline-flex; gap: 8px; white-space: nowrap; }
+#sticky-prompt .meta-model { color: #888; }
+#sticky-prompt .meta-tokens { color: #777; }
+#sticky-prompt .meta-time { color: #555; }
+
+.term-block.type-user .term-prefix { color: #f88; font-weight: bold; }
+.user-icon { height: 1.4em; width: 1.4em; object-fit: cover; vertical-align: middle; border: 1px solid #000; border-radius: 100%; }
+.term-block.type-user .term-content { color: #fff; font-weight: bold; max-height: 4.5em; overflow: hidden; cursor: pointer; }
+
+.term-block.type-assistant { background: #112218; padding-bottom: 0; }
+.term-block.type-assistant .term-content { color: #e0e0e0; }
+
+.term-block.type-thinking .term-prefix { color: #555; font-style: italic; }
+.term-block.type-thinking .term-content { color: #555; font-style: italic; max-height: 400px; overflow: hidden; cursor: pointer; }
+
+.term-block.type-tool_use .term-prefix { color: #e67700; }
+.term-block.type-tool_use .term-content { color: #888; max-height: 300px; overflow: hidden; cursor: pointer; }
+
+.term-block.type-tool_result { background: #000; }
+.term-block.type-tool_result .term-prefix { color: #888; }
+.term-block.type-tool_result .term-content { color: #666; max-height: 300px; overflow: hidden; cursor: pointer; }
+
+.term-block.type-system .term-content { color: #555; font-style: italic; }
+.term-block.type-agent_notification .term-prefix { color: #555; }
+.term-block.type-agent_notification .term-content { color: #666; }
+.term-block.type-skill .term-prefix { color: #6f42c1; }
+.term-block.type-skill .term-content { color: #888; }
+.term-block.type-plan .term-prefix { color: #0d9488; }
+.term-block.type-plan .term-content { color: #888; }
+.term-block.type-interrupt .term-prefix { color: #dc3545; }
+.term-block.type-interrupt .term-content { color: #dc3545; }
+.term-block.type-continuation .term-prefix { color: #555; }
+.term-block.type-continuation .term-content { color: #666; }
+
+.term-block.type-summary { padding: 8px 16px; background: #0a1a0a; border-left: 3px solid #198754; }
+.term-block.type-summary .term-prefix { color: #198754; font-weight: bold; }
+.term-block.type-summary .term-content { color: #2ea06a; }
+
+.term-content { padding: 0 0.5rem; }
+.term-nav { display: flex; justify-content: flex-end; gap: 12px; padding: 2px 0.5rem; font-size: 11px; }
+.term-nav span { color: #555; cursor: pointer; user-select: none; }
+.term-nav span:hover { color: #999; }
+.term-nav span.hidden { display: none; }
+.term-meta-line { text-align: right; padding: 0 0.5rem; font-size: 11px; }
+.term-meta { display: inline-flex; gap: 8px; white-space: nowrap; }
+.term-meta .meta-model { color: #888; }
+.term-meta .meta-tokens { color: #777; }
+.term-meta .meta-time { color: #555; }
+.term-meta .meta-sidechain { color: #e67700; }
+
+/* Markdown inside terminal blocks */
+.term-md { word-break: break-word; }
+.term-md p { margin: 0.4em 0; }
+.term-md p:first-child { margin-top: 0; }
+.term-md p:last-child { margin-bottom: 0; }
+.term-md pre { background: #111; padding: 8px 10px; overflow-x: auto; margin: 0.5em 0; border: 1px solid #222; }
+.term-md code { background: #000; padding: 1px 4px; color: #CC8; }
+.term-md pre code { background: none; padding: 0; }
+.term-md ul, .term-md ol { margin: 0.4em 0; padding-left: 1.5em; }
+.term-md h1, .term-md h2, .term-md h3, .term-md h4 { margin: 0.6em 0 0.3em; color: #fff; font-weight: bold; }
+.term-md h1 { font-size: 1.3em; }
+.term-md h2 { font-size: 1.15em; }
+.term-md h3 { font-size: 1.05em; }
+.term-md blockquote { border-left: 3px solid #222; padding-left: 10px; color: #888; margin: 0.4em 0; }
+.term-md table { border-collapse: collapse; margin: 0.4em 0; }
+.term-md th, .term-md td { border: 1px solid #222; padding: 4px 8px; }
+.term-md a { color: #7c9cff; }
+.term-md strong { color: #fff; }
+.term-md img { max-width: 100%; }
+
+/* Slash / local command rendering inside the transcript */
+.cmd-line { font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; padding: 2px 0; }
+.cmd-name { color: #c4b5fd; background: rgba(124, 58, 237, 0.18); border: 1px solid rgba(124, 58, 237, 0.4); border-radius: 3px; padding: 0 6px; font-weight: bold; }
+.cmd-args { color: var(--text); word-break: break-all; }
+.cmd-output { margin-top: 4px; color: #888; border-left: 2px solid #333; padding-left: 8px; font-size: 12px; }
+.cmd-caveat { color: #555; font-style: italic; font-size: 11px; margin-top: 4px; }
+
+pre.plain { white-space: pre-wrap; word-break: break-word; padding: 16px; }
+</style>
+</head>
+<body>
+
+<div class="transcript-meta" id="transcript-meta"></div>
+<div class="filters-bar" id="filters-bar">
+    <div class="filters-toggles">
+        <span class="transcript-search">
+            <input type="text" id="transcript-search-input" placeholder="Find in transcript...">
+            <span id="transcript-search-count"></span>
+            <span class="transcript-search-nav">
+                <button id="transcript-search-prev" title="Previous">&uarr;</button>
+                <button id="transcript-search-next" title="Next">&darr;</button>
+            </span>
+        </span>
+        <label><input type="checkbox" id="filter-all"> All</label>
+        <label><input type="checkbox" id="filter-user" checked> User</label>
+        <label><input type="checkbox" id="filter-assistant" checked> Agent</label>
+        <label><input type="checkbox" id="filter-thinking" checked> Thinking</label>
+        <label><input type="checkbox" id="filter-tools" checked> Tool calls</label>
+        <label><input type="checkbox" id="filter-results" checked> Tool res</label>
+        <label><input type="checkbox" id="filter-agent"> Agent notif</label>
+        <label><input type="checkbox" id="filter-skill"> Skills</label>
+        <label><input type="checkbox" id="filter-plan" checked> Plans</label>
+        <label><input type="checkbox" id="filter-interrupt" checked> Interrupt</label>
+        <label><input type="checkbox" id="filter-continuation"> Cont</label>
+    </div>
+    <div id="scroll-metrics"></div>
+</div>
+<div id="sticky-prompt"></div>
+<div id="loading" class="loading">Loading session&hellip;</div>
+<div id="error" class="error-box hidden"></div>
+<div class="messages" id="messages-container"></div>
+
+<script type="text/javascript">
+
+// The content is loaded and decrypted by the opener (index.html) and delivered
+// here via postMessage, so this page contains no loading or decryption logic of
+// its own -- it is purely the session renderer.
+
+let ansiUp = null;
+let transcriptData = null;
+let sessionModel = '';
+let cumulativeMetrics = null;
+let lastScrollMetricsIdx = -1;
+let stickyCurrentIdx = -1;
+let stickyHeight = 60;
+let transcriptSearchHits = [];
+let transcriptSearchIdx = -1;
+
+/// ---- Model pricing (per million tokens) ----
+
+const PRICING = {
+    'opus-4.5+': { input: 5, output: 25, cache_read: 0.50, cache_creation: 6.25 },
+    'opus-4.0':  { input: 15, output: 75, cache_read: 1.50, cache_creation: 18.75 },
+    sonnet:      { input: 3, output: 15, cache_read: 0.30, cache_creation: 3.75 },
+    haiku:       { input: 1, output: 5, cache_read: 0.10, cache_creation: 1.25 },
+};
+
+function detectPricingTier(model) {
+    if (!model) return 'sonnet';
+    const m = model.toLowerCase();
+    if (m.includes('opus')) {
+        const ver = m.match(/opus-(\d+)-(\d+)/);
+        if (ver && Number(ver[1]) >= 4 && Number(ver[2]) >= 5) return 'opus-4.5+';
+        if (ver) return 'opus-4.0';
+        return 'opus-4.5+';
+    }
+    if (m.includes('haiku')) return 'haiku';
+    return 'sonnet';
+}
+
+function computeCostFromTokens(inTok, outTok, cacheRead, cacheCreate, model) {
+    const p = PRICING[detectPricingTier(model)];
+    return ((Number(inTok) || 0) * p.input + (Number(outTok) || 0) * p.output +
+            (Number(cacheRead) || 0) * p.cache_read + (Number(cacheCreate) || 0) * p.cache_creation) / 1000000;
+}
+
+/// ---- Formatting helpers ----
+
+function formatDuration(sec) {
+    sec = Number(sec) || 0;
+    if (sec < 60) return `${sec}s`;
+    if (sec < 3600) return `${Math.floor(sec / 60)}m ${sec % 60}s`;
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    return `${h}h ${m}m`;
+}
+
+function formatMs(ms) { return formatDuration(Math.round((Number(ms) || 0) / 1000)); }
+
+function formatNumber(n) {
+    n = Number(n) || 0;
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+    return String(n);
+}
+
+function formatCost(c) {
+    if (c < 0.01) return '$' + c.toFixed(4);
+    if (c < 1) return '$' + c.toFixed(3);
+    return '$' + c.toFixed(2);
+}
+
+function formatTime(ts) {
+    if (!ts) return '';
+    let d = new Date(ts);
+    if (isNaN(d)) d = new Date(String(ts).replace(' ', 'T'));
+    if (isNaN(d)) return ts;
+    const now = new Date();
+    const diff = now - d;
+    const pad = n => String(n).padStart(2, '0');
+    const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    if (diff < 86400000 && d.getDate() === now.getDate()) return `Today ${time}`;
+    if (diff < 172800000) return `Yesterday ${time}`;
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${time}`;
+}
+
+function escapeHtml(s) {
+    if (!s) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// eslint-disable-next-line no-control-regex
+const ANSI_RE = /\x1b\[/;
+function renderAnsi(s) {
+    if (!s) return '';
+    if (ansiUp && ANSI_RE.test(s)) return ansiUp.ansi_to_html(s);
+    return escapeHtml(s);
+}
+
+function shortModel(m) {
+    if (!m) return '';
+    const match = m.match(/claude-(\w+)-(\d+)-(\d+)/);
+    if (match) return `${match[1]}-${match[2]}.${match[3]}`;
+    return m.replace('claude-', '');
+}
+
+/// ---- Slash-command / local-command wrappers ----
+
+const COMMAND_TAG_RE = /<\/?(command-(?:message|name|args|contents)|local-command-(?:stdout|stderr|caveat))>/;
+function extractTag(text, tag) {
+    const m = text.match(new RegExp('<' + tag + '>([\\s\\S]*?)</' + tag + '>'));
+    return m ? m[1].trim() : null;
+}
+function renderCommandMessage(text) {
+    if (!COMMAND_TAG_RE.test(text)) return null;
+    const name = extractTag(text, 'command-name');
+    const args = extractTag(text, 'command-args');
+    const message = extractTag(text, 'command-message');
+    const contents = extractTag(text, 'command-contents');
+    const stdout = extractTag(text, 'local-command-stdout');
+    const stderr = extractTag(text, 'local-command-stderr');
+    const caveat = extractTag(text, 'local-command-caveat');
+
+    const parts = [];
+    const cmdName = name || (message ? '/' + message : null);
+    if (cmdName) {
+        let line = `<span class="cmd-name">${escapeHtml(cmdName)}</span>`;
+        if (args) line += ` <span class="cmd-args">${escapeHtml(args)}</span>`;
+        parts.push(`<div class="cmd-line">${line}</div>`);
+    }
+    if (contents) parts.push(`<div class="cmd-output" style="white-space:pre-wrap">${renderAnsi(contents)}</div>`);
+    const out = [stdout, stderr].filter(s => s != null && s !== '').join('\n');
+    if (out) parts.push(`<div class="cmd-output" style="white-space:pre-wrap">${renderAnsi(out)}</div>`);
+
+    // The local-command caveat is pure boilerplate -- never render it. If it was the
+    // only content, return '' so the caller skips the message entirely.
+    if (!parts.length && caveat) return '';
+    return parts.length ? parts.join('') : null;
+}
+
+/// ---- Message parsing and classification ----
+
+function parseContentBlocks(contentStr) {
+    if (!contentStr || contentStr === '[]') return [];
+    try {
+        const parsed = JSON.parse(contentStr);
+        if (Array.isArray(parsed)) return parsed;
+        if (typeof parsed === 'string') return [{ type: 'text', text: parsed }];
+    } catch (e) {}
+    return [{ type: 'text', text: contentStr }];
+}
+
+function renderToolInput(input) {
+    if (!input || typeof input !== 'object') return renderAnsi(String(input || ''));
+    const lines = [];
+    for (const [k, v] of Object.entries(input)) {
+        const val = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
+        if (val.includes('\n') || val.length > 100) lines.push(`${k}:\n${val}`);
+        else lines.push(`${k}: ${val}`);
+    }
+    return renderAnsi(lines.join('\n'));
+}
+
+function renderEditDiff(input) {
+    const file = input.file_path || '';
+    const oldLines = input.old_string ? input.old_string.split('\n') : [];
+    const newLines = input.new_string ? input.new_string.split('\n') : [];
+    let html = `<span style="color:#888">${escapeHtml(file)}</span>`;
+    html += `  <span style="color:#f44">-${oldLines.length}</span> <span style="color:#4f4">+${newLines.length}</span>\n`;
+    for (const line of oldLines) html += `<span style="color:#f44;opacity:0.8">- ${escapeHtml(line)}</span>\n`;
+    for (const line of newLines) html += `<span style="color:#4f4;opacity:0.8">+ ${escapeHtml(line)}</span>\n`;
+    return html;
+}
+
+function renderWriteSummary(input) {
+    const file = input.file_path || '';
+    const lines = input.content ? input.content.split('\n') : [];
+    let html = `<span style="color:#888">${escapeHtml(file)}</span>`;
+    html += `  <span style="color:#4f4">+${lines.length} lines</span>\n`;
+    for (const line of lines) html += `<span style="color:#4f4;opacity:0.8">+ ${escapeHtml(line)}</span>\n`;
+    return html;
+}
+
+function classifyMessage(msg) {
+    const blocks = parseContentBlocks(msg.content);
+    const isSidechain = msg.is_sidechain === true;
+
+    if (msg.type === 'summary') return { category: 'summary', blocks, isSidechain };
+    if (msg.type === 'system') return { category: 'skip', blocks, isSidechain };
+    if (msg.type === 'progress') return { category: 'skip', blocks, isSidechain };
+    if (msg.type !== 'user' && msg.type !== 'assistant') return { category: 'skip', blocks, isSidechain };
+
+    if (msg.type === 'assistant') {
+        let hasText = false, thinkingCount = 0, toolUseCount = 0;
+        for (const b of blocks) {
+            if (b.type === 'thinking' && b.thinking) thinkingCount++;
+            else if (b.type === 'text' && b.text) hasText = true;
+            else if (b.type === 'tool_use') toolUseCount++;
+        }
+        return { category: 'assistant', blocks, isSidechain, hasText, thinkingCount, toolUseCount };
+    }
+
+    const isToolResult = blocks.length > 0 && blocks.every(b => b.type === 'tool_result');
+    const textContent = blocks.filter(b => b.type === 'text').map(b => b.text || '').join('');
+    const isAgentNotification = !isToolResult && /<task-notification>/.test(textContent);
+    const isMeta = msg.is_meta === true;
+    const isSkill = !isToolResult && !isAgentNotification && isMeta;
+    const isPlan = !isToolResult && !isAgentNotification && !isSkill && textContent.startsWith('Implement the following plan:');
+    const isInterrupt = !isToolResult && !isAgentNotification && !isSkill && !isPlan && /^\[Request interrupted by user/.test(textContent.trim());
+    const isContinuation = !isToolResult && !isAgentNotification && !isSkill && !isPlan && !isInterrupt && /This session is being continued from a previous conversation/.test(textContent);
+
+    let category = 'user';
+    if (isToolResult) category = 'tool_result';
+    else if (isAgentNotification) category = 'agent_notification';
+    else if (isSkill) category = 'skill';
+    else if (isPlan) category = 'plan';
+    else if (isInterrupt) category = 'interrupt';
+    else if (isContinuation) category = 'continuation';
+
+    return { category, blocks, isSidechain };
+}
+
+function countMessages(data) {
+    const counts = { user: 0, assistant: 0, thinking: 0, tools: 0, results: 0, agent: 0, skill: 0, plan: 0, interrupt: 0, continuation: 0 };
+    for (const msg of data) {
+        const cl = classifyMessage(msg);
+        if (cl.category === 'assistant') {
+            if (cl.hasText) counts.assistant++;
+            counts.thinking += cl.thinkingCount;
+            counts.tools += cl.toolUseCount;
+        } else if (cl.category === 'tool_result') counts.results++;
+        else if (cl.category === 'user') counts.user++;
+        else if (cl.category === 'agent_notification') counts.agent++;
+        else if (cl.category === 'skill') counts.skill++;
+        else if (cl.category === 'plan') counts.plan++;
+        else if (cl.category === 'interrupt') counts.interrupt++;
+        else if (cl.category === 'continuation') counts.continuation++;
+    }
+    return counts;
+}
+
+function updateFilterLabels(counts) {
+    const labels = {
+        'filter-user': ['User', counts.user],
+        'filter-assistant': ['Agent', counts.assistant],
+        'filter-thinking': ['Thinking', counts.thinking],
+        'filter-tools': ['Tool calls', counts.tools],
+        'filter-results': ['Tool res', counts.results],
+        'filter-agent': ['Agent notif', counts.agent],
+        'filter-skill': ['Skills', counts.skill],
+        'filter-plan': ['Plans', counts.plan],
+        'filter-interrupt': ['Interrupt', counts.interrupt],
+        'filter-continuation': ['Cont', counts.continuation],
+    };
+    for (const [id, [name, count]] of Object.entries(labels)) {
+        const el = document.getElementById(id);
+        if (el && el.parentElement) {
+            el.parentElement.childNodes[1].textContent = ` ${name} (${count})`;
+            el.disabled = count === 0;
+        }
+    }
+}
+
+function getFilters() {
+    return {
+        user: document.getElementById('filter-user').checked,
+        assistant: document.getElementById('filter-assistant').checked,
+        thinking: document.getElementById('filter-thinking').checked,
+        tools: document.getElementById('filter-tools').checked,
+        results: document.getElementById('filter-results').checked,
+        agent: document.getElementById('filter-agent').checked,
+        skill: document.getElementById('filter-skill').checked,
+        plan: document.getElementById('filter-plan').checked,
+        interrupt: document.getElementById('filter-interrupt').checked,
+        continuation: document.getElementById('filter-continuation').checked,
+    };
+}
+
+/// ---- Transcript rendering ----
+
+function renderTranscript() {
+    const container = document.getElementById('messages-container');
+    if (!transcriptData || transcriptData.length === 0) {
+        container.innerHTML = '<div style="color:#555;text-align:center;padding:60px 20px">No messages in this session</div>';
+        return;
+    }
+
+    const counts = countMessages(transcriptData);
+    updateFilterLabels(counts);
+    buildCumulativeMetrics();
+    lastScrollMetricsIdx = -1;
+
+    const filters = getFilters();
+    const html = [];
+
+    function metaHtml(msg, isSidechain) {
+        const parts = [];
+        if (msg.model && msg.model !== '<synthetic>') parts.push(`<span class="meta-model">${escapeHtml(shortModel(msg.model))}</span>`);
+        const inTok = Number(msg.input_tokens) || 0;
+        const outTok = Number(msg.output_tokens) || 0;
+        const cacheRead = Number(msg.cache_read_tokens) || 0;
+        if (inTok || outTok) {
+            const t = [];
+            if (inTok) t.push(`↓${formatNumber(inTok)}`);
+            if (cacheRead) t.push(`⇊${formatNumber(cacheRead)}`);
+            if (outTok) t.push(`↑${formatNumber(outTok)}`);
+            parts.push(`<span class="meta-tokens">${t.join(' ')}</span>`);
+        }
+        if (msg.ts) parts.push(`<span class="meta-time">${formatTime(msg.ts)}</span>`);
+        if (isSidechain) parts.push(`<span class="meta-sidechain">[sidechain]</span>`);
+        return parts.length ? `<span class="term-meta">${parts.join('')}</span>` : '';
+    }
+
+    function prependPrefix(prefix, body) {
+        if (!prefix) return body;
+        const tag = `<span class="term-prefix">${prefix} </span>`;
+        const m = body.match(/^(\s*<(?:div|p|blockquote|ul|ol|li|h[1-6])[^>]*>)+/i);
+        if (m) return body.slice(0, m[0].length) + tag + body.slice(m[0].length);
+        return tag + body;
+    }
+
+    let currentMsgIdx = -1;
+    function emit(type, prefix, body, msg, isSidechain) {
+        const cls = `term-block type-${type}${isSidechain ? ' sidechain' : ''}`;
+        const meta = metaHtml(msg, isSidechain);
+        const metaLine = meta ? `<div class="term-meta-line">${meta}</div>` : '';
+        const navAttr = (type === 'user' || type === 'assistant') ? ` data-nav="${type}"` : '';
+        const navFooter = navAttr ? `<div class="term-nav"><span class="nav-prev" data-dir="prev">▲ prev</span><span class="nav-next" data-dir="next">▼ next</span></div>` : '';
+        html.push(`<div class="${cls}"${navAttr} data-msg-idx="${currentMsgIdx}">${metaLine}<div class="term-content">${prependPrefix(prefix, body)}</div>${navFooter}</div>`);
+    }
+
+    function renderMd(text) {
+        if (ANSI_RE.test(text)) return `<div style="white-space:pre-wrap">${renderAnsi(text)}</div>`;
+        return `<div class="term-md">${marked.parse(text)}</div>`;
+    }
+
+    function renderToolResult(block) {
+        const text = typeof block.content === 'string' ? block.content :
+            Array.isArray(block.content) ? block.content.map(c => c.text || '').join('\n') :
+            JSON.stringify(block.content);
+        return `<div style="white-space:pre-wrap">${renderAnsi(text)}</div>`;
+    }
+
+    for (let mi = 0; mi < transcriptData.length; mi++) {
+        const msg = transcriptData[mi];
+        currentMsgIdx = mi;
+        const cl = classifyMessage(msg);
+        const isSidechain = cl.isSidechain;
+
+        if (cl.category === 'skip') continue;
+
+        if (cl.category === 'summary' && msg.summary) {
+            emit('summary', '█ Summary', escapeHtml(msg.summary), msg, isSidechain);
+            continue;
+        }
+
+        const validCategories = ['user','assistant','tool_result','agent_notification','skill','plan','interrupt','continuation'];
+        if (!validCategories.includes(cl.category)) continue;
+
+        if (cl.category === 'tool_result' && !filters.results) continue;
+        if (cl.category === 'agent_notification' && !filters.agent) continue;
+        if (cl.category === 'skill' && !filters.skill) continue;
+        if (cl.category === 'plan' && !filters.plan) continue;
+        if (cl.category === 'interrupt' && !filters.interrupt) continue;
+        if (cl.category === 'continuation' && !filters.continuation) continue;
+        if (cl.category === 'user' && !filters.user) continue;
+
+        const blocks = cl.blocks;
+
+        // Assistant: emit each sub-block separately
+        if (msg.type === 'assistant') {
+            let textParts = [];
+            const flushText = () => {
+                if (!textParts.length || !filters.assistant) return;
+                const joined = textParts.join('');
+                textParts = [];
+                if (!joined.replace(/<[^>]*>/g, '').trim()) return;
+                emit('assistant', '●', joined, msg, isSidechain);
+            };
+            for (const block of blocks) {
+                if (block.type === 'thinking' && block.thinking) {
+                    flushText();
+                    if (!filters.thinking) continue;
+                    emit('thinking', '\u{1F4AD}', `<div style="white-space:pre-wrap">${escapeHtml(block.thinking)}</div>`, msg, isSidechain);
+                } else if (block.type === 'text' && block.text && block.text.trim()) {
+                    textParts.push(renderMd(block.text));
+                } else if (block.type === 'tool_use') {
+                    flushText();
+                    if (!filters.tools) continue;
+                    const toolName = block.name || 'tool';
+                    let toolBody;
+                    if (toolName === 'Edit' && block.input) toolBody = `<div style="white-space:pre-wrap">${renderEditDiff(block.input)}</div>`;
+                    else if (toolName === 'Write' && block.input) toolBody = `<div style="white-space:pre-wrap">${renderWriteSummary(block.input)}</div>`;
+                    else toolBody = `<div style="white-space:pre-wrap">${renderToolInput(block.input)}</div>`;
+                    emit('tool_use', `● ${escapeHtml(toolName)}`, toolBody, msg, isSidechain);
+                }
+            }
+            flushText();
+            continue;
+        }
+
+        // User messages and subtypes
+        const prefixMap = {
+            user:               '<img src="data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 48 48\'%3E%3Ccircle cx=\'24\' cy=\'24\' r=\'24\' fill=\'%236b7280\'/%3E%3Ccircle cx=\'24\' cy=\'18\' r=\'8\' fill=\'%23d1d5db\'/%3E%3Cpath d=\'M8 42c0-8.837 7.163-16 16-16s16 7.163 16 16\' fill=\'%23d1d5db\'/%3E%3C/svg%3E" class="user-icon">',
+            tool_result:        '',
+            agent_notification: '○ agent',
+            skill:              '○ skill',
+            plan:               '○ plan',
+            interrupt:          '✖',
+            continuation:       '…',
+        };
+        const prefix = prefixMap[cl.category] || '';
+
+        let bodyHtml = '';
+        for (const block of blocks) {
+            if (block.type === 'text' && block.text) {
+                const cmd = renderCommandMessage(block.text);
+                bodyHtml += cmd != null ? cmd : renderMd(block.text);
+            } else if (block.type === 'tool_result') {
+                if (!filters.results) continue;
+                bodyHtml += renderToolResult(block);
+            }
+        }
+
+        if (msg.type === 'user' && (msg.tool_result_content || msg.tool_result_stdout || msg.tool_result_stderr)) {
+            if (filters.results) {
+                const parts = [msg.tool_result_content, msg.tool_result_stdout, msg.tool_result_stderr].filter(Boolean);
+                if (parts.length && !bodyHtml) bodyHtml += `<div style="white-space:pre-wrap">${renderAnsi(parts.join('\n'))}</div>`;
+            }
+        }
+
+        if (!bodyHtml.trim()) continue;
+
+        emit(cl.category, prefix, bodyHtml, msg, isSidechain);
+    }
+
+    container.innerHTML = html.join('') || '<div style="color:#555;text-align:center;padding:60px 20px">No visible messages (adjust filters)</div>';
+    updateStickyOffset();
+    updateScrollMetrics();
+
+    // Hide prev on first and next on last for each nav group
+    for (const group of ['user', 'assistant']) {
+        const blocks = container.querySelectorAll(`[data-nav="${group}"]`);
+        if (blocks.length > 0) {
+            const firstNav = blocks[0].querySelector('.nav-prev');
+            const lastNav = blocks[blocks.length - 1].querySelector('.nav-next');
+            if (firstNav) firstNav.classList.add('hidden');
+            if (lastNav) lastNav.classList.add('hidden');
+        }
+    }
+
+    const searchQuery = document.getElementById('transcript-search-input').value.trim();
+    if (searchQuery.length >= 2) doTranscriptSearch(searchQuery);
+}
+
+function updateStickyOffset() {
+    const bar = document.getElementById('filters-bar');
+    if (bar) {
+        const h = bar.offsetHeight + 'px';
+        document.getElementById('messages-container').style.setProperty('--filters-height', h);
+        document.getElementById('sticky-prompt').style.setProperty('--filters-height', h);
+    }
+}
+
+/// ---- Cumulative scroll metrics ----
+
+function buildCumulativeMetrics() {
+    if (!transcriptData || !transcriptData.length) { cumulativeMetrics = null; return; }
+    cumulativeMetrics = new Array(transcriptData.length);
+    let time0 = null;
+    let apiMs = 0, inTok = 0, outTok = 0, cacheRead = 0, cacheCreate = 0;
+    let userPrompts = 0, assistantMsgs = 0, thoughts = 0, tools = 0, compactions = 0, plans = 0;
+    for (let i = 0; i < transcriptData.length; i++) {
+        const msg = transcriptData[i];
+        const ts = msg.ts ? new Date(String(msg.ts).replace(' ', 'T')) : null;
+        if (ts && !isNaN(ts) && !time0) time0 = ts;
+
+        if (msg.type === 'system' && msg.subtype === 'turn_duration') apiMs += Number(msg.duration_ms) || 0;
+        if (msg.type === 'system' && (msg.subtype === 'compact_boundary' || msg.subtype === 'microcompact_boundary')) compactions++;
+        if (msg.type === 'assistant') {
+            inTok += Number(msg.input_tokens) || 0;
+            outTok += Number(msg.output_tokens) || 0;
+            cacheRead += Number(msg.cache_read_tokens) || 0;
+            cacheCreate += Number(msg.cache_creation_tokens) || 0;
+            const cl = classifyMessage(msg);
+            if (cl.hasText) assistantMsgs++;
+            thoughts += cl.thinkingCount;
+            tools += cl.toolUseCount;
+        }
+        if (msg.type === 'user') {
+            const cl = classifyMessage(msg);
+            if (cl.category === 'user') userPrompts++;
+            if (cl.category === 'plan') plans++;
+        }
+
+        const elapsed = (ts && time0) ? Math.round((ts - time0) / 1000) : 0;
+        cumulativeMetrics[i] = { elapsed, apiMs, inTok, outTok, cacheRead, cacheCreate, userPrompts, assistantMsgs, thoughts, tools, compactions, plans };
+    }
+}
+
+function computeCumulativeCost(m) {
+    return computeCostFromTokens(m.inTok, m.outTok, m.cacheRead, m.cacheCreate, sessionModel);
+}
+
+function updateScrollMetrics() {
+    const metricsEl = document.getElementById('scroll-metrics');
+    if (!cumulativeMetrics || !transcriptData || window.scrollY < 10) { metricsEl.style.display = 'none'; return; }
+
+    const container = document.getElementById('messages-container');
+    const blocks = container.querySelectorAll('.term-block[data-msg-idx]');
+    if (!blocks.length) { metricsEl.style.display = 'none'; return; }
+
+    const viewBottom = window.scrollY + window.innerHeight;
+    let lastIdx = -1;
+    for (const block of blocks) {
+        if (block.offsetTop <= viewBottom) {
+            const mi = parseInt(block.dataset.msgIdx);
+            if (mi > lastIdx) lastIdx = mi;
+        }
+    }
+
+    if (lastIdx < 0 || lastIdx >= cumulativeMetrics.length) { metricsEl.style.display = 'none'; return; }
+    if (lastIdx === lastScrollMetricsIdx) return;
+    lastScrollMetricsIdx = lastIdx;
+
+    const wasHidden = metricsEl.style.display === 'none';
+    const m = cumulativeMetrics[lastIdx];
+    const cost = computeCumulativeCost(m);
+
+    metricsEl.style.display = 'flex';
+    metricsEl.innerHTML =
+        `<span>⏱ <span class="val">${formatDuration(m.elapsed)}</span></span>` +
+        `<span class="val">${formatCost(cost)}</span>` +
+        `<span>↓<span class="val">${formatNumber(m.inTok)}</span> ↑<span class="val">${formatNumber(m.outTok)}</span> ⇊<span class="val">${formatNumber(m.cacheRead)}</span> ⇈<span class="val">${formatNumber(m.cacheCreate)}</span></span>` +
+        `<span>User <span class="val">${m.userPrompts}</span></span>` +
+        `<span>Agent <span class="val">${m.assistantMsgs}</span></span>` +
+        `<span>Thoughts <span class="val">${m.thoughts}</span></span>` +
+        `<span>Tools <span class="val">${m.tools}</span></span>` +
+        (m.compactions ? `<span>Compactions <span class="val">${m.compactions}</span></span>` : '') +
+        (m.plans ? `<span>Plans <span class="val">${m.plans}</span></span>` : '');
+
+    if (wasHidden) updateStickyOffset();
+}
+
+/// ---- Sticky user prompt ----
+
+function updateStickyPrompt() {
+    const container = document.getElementById('messages-container');
+    const sticky = document.getElementById('sticky-prompt');
+    const blocks = container.querySelectorAll('[data-nav="user"]');
+    if (!blocks.length) { sticky.style.display = 'none'; return; }
+
+    const filtersBar = document.getElementById('filters-bar');
+    const filtersH = filtersBar ? filtersBar.offsetHeight : 36;
+    const scrollTop = window.scrollY + filtersH;
+
+    let currentIdx = -1;
+    for (let i = 0; i < blocks.length; i++) {
+        if (blocks[i].offsetTop < scrollTop) currentIdx = i;
+        else break;
+    }
+
+    if (currentIdx < 0 || (blocks[currentIdx].offsetTop + blocks[currentIdx].offsetHeight) > scrollTop) {
+        sticky.style.display = 'none';
+        stickyCurrentIdx = -1;
+        return;
+    }
+
+    const nextBlock = blocks[currentIdx + 1];
+    if (nextBlock) {
+        const stickyBottomY = scrollTop + stickyHeight;
+        if (nextBlock.offsetTop <= stickyBottomY + 2) {
+            sticky.style.display = 'none';
+            stickyCurrentIdx = -1;
+            return;
+        }
+    }
+
+    if (currentIdx !== stickyCurrentIdx) {
+        stickyCurrentIdx = currentIdx;
+        sticky.innerHTML = blocks[currentIdx].innerHTML;
+        const prev = sticky.querySelector('.nav-prev');
+        const next = sticky.querySelector('.nav-next');
+        if (prev) prev.classList.toggle('hidden', currentIdx === 0);
+        if (next) next.classList.toggle('hidden', currentIdx === blocks.length - 1);
+    }
+    sticky.style.top = filtersH + 'px';
+    sticky.style.display = 'block';
+    stickyHeight = sticky.offsetHeight;
+}
+
+/// ---- Transcript search ----
+
+function clearTranscriptSearch() {
+    document.querySelectorAll('mark.search-hit').forEach(m => {
+        const parent = m.parentNode;
+        parent.replaceChild(document.createTextNode(m.textContent), m);
+        parent.normalize();
+    });
+    transcriptSearchHits = [];
+    transcriptSearchIdx = -1;
+    document.getElementById('transcript-search-count').textContent = '';
+    document.querySelector('.transcript-search').classList.remove('active');
+}
+
+function doTranscriptSearch(query) {
+    clearTranscriptSearch();
+    if (!query || query.length < 2) return;
+    document.querySelector('.transcript-search').classList.add('active');
+
+    const container = document.getElementById('messages-container');
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    const matches = [];
+    const lcQuery = query.toLowerCase();
+
+    while (walker.nextNode()) {
+        const node = walker.currentNode;
+        if (node.parentElement.closest('.term-meta-line, .term-nav, .term-prefix')) continue;
+        if (node.textContent.toLowerCase().includes(lcQuery)) matches.push(node);
+    }
+
+    for (const node of matches) {
+        const text = node.textContent;
+        const frag = document.createDocumentFragment();
+        let lastIdx = 0;
+        const lcText = text.toLowerCase();
+        let pos;
+        while ((pos = lcText.indexOf(lcQuery, lastIdx)) !== -1) {
+            if (pos > lastIdx) frag.appendChild(document.createTextNode(text.slice(lastIdx, pos)));
+            const mark = document.createElement('mark');
+            mark.className = 'search-hit';
+            mark.textContent = text.slice(pos, pos + query.length);
+            frag.appendChild(mark);
+            lastIdx = pos + query.length;
+        }
+        if (lastIdx < text.length) frag.appendChild(document.createTextNode(text.slice(lastIdx)));
+        node.parentNode.replaceChild(frag, node);
+    }
+
+    transcriptSearchHits = [...container.querySelectorAll('mark.search-hit')];
+    const countEl = document.getElementById('transcript-search-count');
+    if (transcriptSearchHits.length > 0) {
+        transcriptSearchIdx = 0;
+        highlightCurrentHit();
+        countEl.textContent = `1/${transcriptSearchHits.length}`;
+    } else {
+        countEl.textContent = '0';
+    }
+}
+
+function highlightCurrentHit() {
+    transcriptSearchHits.forEach((m, i) => m.classList.toggle('current', i === transcriptSearchIdx));
+    const hit = transcriptSearchHits[transcriptSearchIdx];
+    if (hit) {
+        const content = hit.closest('.term-content');
+        if (content && !content.classList.contains('expanded')) content.classList.add('expanded');
+        const filtersH = document.getElementById('filters-bar')?.offsetHeight || 36;
+        const stickyH = document.getElementById('sticky-prompt')?.offsetHeight || 0;
+        const top = hit.getBoundingClientRect().top + window.scrollY - filtersH - stickyH - 40;
+        window.scrollTo({ top, behavior: 'smooth' });
+    }
+}
+
+function navigateTranscriptSearch(dir) {
+    if (!transcriptSearchHits.length) return;
+    transcriptSearchIdx = (transcriptSearchIdx + dir + transcriptSearchHits.length) % transcriptSearchHits.length;
+    highlightCurrentHit();
+    document.getElementById('transcript-search-count').textContent = `${transcriptSearchIdx + 1}/${transcriptSearchHits.length}`;
+}
+
+/// ---- Session parsing ----
+
+// The stored content is a Claude Code session: JSONL, one record per line.
+// (As a convenience we also accept a single JSON array or object.)
+function parseClaudeRecords(text) {
+    text = (text || '').trim();
+    if (!text) return [];
+    try {
+        const whole = JSON.parse(text);
+        if (Array.isArray(whole)) return whole;
+        if (whole && typeof whole === 'object') return [whole];
+    } catch (e) {}
+    const records = [];
+    for (const line of text.split('\n')) {
+        const t = line.trim();
+        if (!t) continue;
+        try { records.push(JSON.parse(t)); } catch (e) {}
+    }
+    return records;
+}
+
+// Map a raw session record into the flat shape the renderer expects. This mirrors
+// the projection the alexeyprompts viewer does in SQL over its `data` JSON column.
+function normalizeRecord(r) {
+    r = r || {};
+    const msg = r.message || {};
+    let contentStr;
+    const c = msg.content;
+    if (typeof c === 'string') contentStr = JSON.stringify([{ type: 'text', text: c }]);
+    else if (Array.isArray(c)) contentStr = JSON.stringify(c);
+    else contentStr = '[]';
+    const usage = msg.usage || {};
+    const tur = (r.toolUseResult && typeof r.toolUseResult === 'object') ? r.toolUseResult : {};
+    return {
+        sid: r.sessionId || '',
+        type: r.type || '',
+        ts: r.timestamp || '',
+        model: msg.model || '',
+        content: contentStr,
+        input_tokens: usage.input_tokens || 0,
+        output_tokens: usage.output_tokens || 0,
+        cache_read_tokens: usage.cache_read_input_tokens || 0,
+        cache_creation_tokens: usage.cache_creation_input_tokens || 0,
+        duration_ms: r.durationMs || 0,
+        subtype: r.subtype || '',
+        summary: r.summary || '',
+        git_branch: r.gitBranch || '',
+        is_sidechain: r.isSidechain === true,
+        is_meta: r.isMeta === true,
+        tool_result_content: typeof tur.content === 'string' ? tur.content : (tur.content != null ? JSON.stringify(tur.content) : ''),
+        tool_result_stdout: tur.stdout || '',
+        tool_result_stderr: tur.stderr || '',
+        cwd: r.cwd || '',
+    };
+}
+
+function metaItem(label, val, titleAttr) {
+    return `<span${titleAttr ? ` title="${escapeHtml(titleAttr)}"` : ''}><span class="label">${label}: </span><span class="val">${escapeHtml(val)}</span></span>`;
+}
+
+function computeMeta(data) {
+    let started = null, ended = null, model = '', gitBranch = '', cwd = '', sid = '';
+    let inTok = 0, outTok = 0, cacheRead = 0, cacheCreate = 0, apiMs = 0;
+    let summary = '', firstUser = '';
+    for (const m of data) {
+        if (m.ts) {
+            if (!started || m.ts < started) started = m.ts;
+            if (!ended || m.ts > ended) ended = m.ts;
+        }
+        if (m.type === 'assistant') {
+            inTok += Number(m.input_tokens) || 0;
+            outTok += Number(m.output_tokens) || 0;
+            cacheRead += Number(m.cache_read_tokens) || 0;
+            cacheCreate += Number(m.cache_creation_tokens) || 0;
+            if (!model && m.model && m.model !== '<synthetic>') model = m.model;
+        }
+        if (m.type === 'system' && m.subtype === 'turn_duration') apiMs += Number(m.duration_ms) || 0;
+        if (!gitBranch && m.git_branch) gitBranch = m.git_branch;
+        if (!cwd && m.cwd) cwd = m.cwd;
+        if (!sid && m.sid) sid = m.sid;
+        if (!summary && m.type === 'summary' && m.summary) summary = m.summary;
+        if (!firstUser && m.type === 'user') {
+            const cl = classifyMessage(m);
+            if (cl.category === 'user') {
+                const txt = cl.blocks.filter(b => b.type === 'text').map(b => b.text || '').join('').trim();
+                if (txt) firstUser = txt;
+            }
+        }
+    }
+    let durationSec = 0;
+    if (started && ended) {
+        const s = new Date(String(started).replace(' ', 'T'));
+        const e = new Date(String(ended).replace(' ', 'T'));
+        if (!isNaN(s) && !isNaN(e)) durationSec = Math.round((e - s) / 1000);
+    }
+    const cost = computeCostFromTokens(inTok, outTok, cacheRead, cacheCreate, model);
+    const title = (summary || firstUser || 'Claude session').replace(/\s+/g, ' ').slice(0, 100);
+    const project = cwd ? cwd.split('/').filter(Boolean).pop() : '';
+
+    const parts = [];
+    if (project) parts.push(metaItem('Project', project, cwd));
+    if (sid) parts.push(metaItem('Session', sid.slice(0, 8) + '…', sid));
+    if (started) parts.push(metaItem('Started', formatTime(started)));
+    if (durationSec) parts.push(metaItem('Duration', formatDuration(durationSec)));
+    if (apiMs) parts.push(metaItem('API time', formatMs(apiMs)));
+    if (model) parts.push(metaItem('Model', shortModel(model)));
+    parts.push(metaItem('Cost', formatCost(cost)));
+    parts.push(`<span title="Input / Output / Cache read / Cache create tokens"><span class="val">↓${formatNumber(inTok)} ↑${formatNumber(outTok)} ⇊${formatNumber(cacheRead)} ⇈${formatNumber(cacheCreate)}</span></span>`);
+    if (gitBranch) parts.push(metaItem('Branch', gitBranch));
+
+    return { model, html: parts.join(''), title };
+}
+
+function renderClaudeSession(content) {
+    const records = parseClaudeRecords(content);
+    transcriptData = records.map(normalizeRecord);
+    const meta = computeMeta(transcriptData);
+    sessionModel = meta.model;
+    if (meta.title) {
+        document.title = meta.title;
+        // Reflect the title on the opener's tab (this page runs inside its iframe).
+        if (window.parent && window.parent !== window) window.parent.postMessage({ pastilaTitle: meta.title }, '*');
+    }
+    document.getElementById('transcript-meta').innerHTML = meta.html;
+    renderTranscript();
+}
+
+function renderPlainText(content) {
+    document.getElementById('filters-bar').style.display = 'none';
+    document.getElementById('transcript-meta').style.display = 'none';
+    document.getElementById('sticky-prompt').style.display = 'none';
+    const pre = document.createElement('pre');
+    pre.className = 'plain';
+    pre.textContent = content;
+    const c = document.getElementById('messages-container');
+    c.innerHTML = '';
+    c.appendChild(pre);
+}
+
+/// ---- Event listeners ----
+
+document.getElementById('filter-all').addEventListener('change', e => {
+    const checked = e.target.checked;
+    document.querySelectorAll('#filters-bar input[type="checkbox"]:not(#filter-all)').forEach(cb => cb.checked = checked);
+    renderTranscript();
+});
+document.getElementById('filters-bar').addEventListener('change', e => {
+    if (e.target.id !== 'filter-all') renderTranscript();
+});
+
+let transcriptSearchTimer = null;
+const searchInput = document.getElementById('transcript-search-input');
+searchInput.addEventListener('input', e => {
+    clearTimeout(transcriptSearchTimer);
+    transcriptSearchTimer = setTimeout(() => doTranscriptSearch(e.target.value.trim()), 200);
+});
+searchInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        navigateTranscriptSearch(e.shiftKey ? -1 : 1);
+    } else if (e.key === 'Escape') {
+        e.target.value = '';
+        clearTranscriptSearch();
+    }
+});
+document.getElementById('transcript-search-prev').addEventListener('click', () => navigateTranscriptSearch(-1));
+document.getElementById('transcript-search-next').addEventListener('click', () => navigateTranscriptSearch(1));
+
+// Click to expand/collapse scrollable blocks, and prev/next navigation
+document.getElementById('messages-container').addEventListener('click', e => {
+    const navBtn = e.target.closest('.nav-prev, .nav-next');
+    if (navBtn) {
+        const block = navBtn.closest('[data-nav]');
+        if (!block) return;
+        const group = block.dataset.nav;
+        const all = [...document.querySelectorAll(`[data-nav="${group}"]`)];
+        const idx = all.indexOf(block);
+        const target = navBtn.classList.contains('nav-prev') ? all[idx - 1] : all[idx + 1];
+        if (target) {
+            const offset = parseInt(getComputedStyle(document.getElementById('messages-container')).getPropertyValue('--filters-height')) || 36;
+            window.scrollTo({ top: target.offsetTop - offset, behavior: 'smooth' });
+        }
+        return;
+    }
+    const block = e.target.closest('.type-user, .type-thinking, .type-tool_use, .type-tool_result');
+    if (!block) return;
+    const content = block.querySelector('.term-content');
+    if (content) content.classList.toggle('expanded');
+});
+
+document.getElementById('sticky-prompt').addEventListener('click', e => {
+    const navBtn = e.target.closest('.nav-prev, .nav-next');
+    if (navBtn) {
+        const blocks = [...document.querySelectorAll('[data-nav="user"]')];
+        const target = navBtn.classList.contains('nav-prev') ? blocks[stickyCurrentIdx - 1] : blocks[stickyCurrentIdx + 1];
+        if (target) {
+            const offset = parseInt(getComputedStyle(document.getElementById('messages-container')).getPropertyValue('--filters-height')) || 36;
+            window.scrollTo({ top: target.offsetTop - offset, behavior: 'smooth' });
+        }
+        return;
+    }
+    const content = document.getElementById('sticky-prompt').querySelector('.term-content');
+    if (content) content.classList.toggle('expanded');
+});
+
+window.addEventListener('scroll', () => { updateStickyPrompt(); updateScrollMetrics(); }, { passive: true });
+window.addEventListener('resize', updateStickyOffset);
+
+/// ---- Init ----
+
+function showError(message) {
+    document.getElementById('loading').style.display = 'none';
+    const el = document.getElementById('error');
+    el.textContent = message;
+    el.classList.remove('hidden');
+}
+
+function start(content) {
+    document.getElementById('loading').style.display = 'none';
+
+    // Rendering a session runs Markdown from the (untrusted) content through the
+    // page, which may include arbitrary markup -- warn before rendering, the same
+    // way the main page warns for Markdown/HTML pastes.
+    if (!confirm("⚠️ This pastila link will render as a Claude session, which may be unsafe. Press Cancel to view as plain text.")) {
+        renderPlainText(content);
+        return;
+    }
+
+    renderClaudeSession(content);
+}
+
+// Receive the decrypted session content from the opener (index.html).
+let sessionStarted = false;
+window.addEventListener('message', event => {
+    if (event.source !== window.parent) return;
+    const data = event.data;
+    if (!sessionStarted && data && typeof data === 'object' && typeof data.pastilaSession === 'string') {
+        sessionStarted = true;
+        start(data.pastilaSession);
+    }
+});
+
+marked.setOptions({ gfm: true, breaks: true });
+ansiUp = new AnsiUp();
+
+if (window.parent && window.parent !== window) {
+    // Announce readiness; the opener replies with the session content.
+    window.parent.postMessage('pastila-session-ready', '*');
+} else {
+    showError('Open a Claude session through a pastila “.claude.jsonl” link.');
+}
+
+</script>
+</body>
+</html>
