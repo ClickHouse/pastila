@@ -273,10 +273,9 @@ pre.plain { white-space: pre-wrap; word-break: break-word; padding: 16px; }
 
 <script type="text/javascript">
 
-const clickhouse_url = "https://uzg8q0g12h.eu-central-1.aws.clickhouse.cloud/?user=paste";
-
-const encoder = new TextEncoder;
-const decoder = new TextDecoder;
+// The content is loaded and decrypted by the opener (index.html) and delivered
+// here via postMessage, so this page contains no loading or decryption logic of
+// its own -- it is purely the session renderer.
 
 let ansiUp = null;
 let transcriptData = null;
@@ -287,54 +286,6 @@ let stickyCurrentIdx = -1;
 let stickyHeight = 60;
 let transcriptSearchHits = [];
 let transcriptSearchIdx = -1;
-
-/// ---- Loading and decryption (same scheme as index.html) ----
-
-function base64ToBytes(base64) {
-    return new Uint8Array([...window.atob(base64)].map(x => x.charCodeAt(0)));
-}
-
-async function decrypt_ctr(content, key) {
-    const aes_key = await window.crypto.subtle.importKey('raw', key, { name: 'AES-CTR', length: 128 }, false, ['decrypt']);
-    let ciphertext = base64ToBytes(content);
-    let counter = new Uint8Array(16); /// This is ok as long as the key is not reused.
-    let decrypted = new Uint8Array(await window.crypto.subtle.decrypt({ name: "AES-CTR", counter: counter, length: 128 }, aes_key, ciphertext));
-    return decoder.decode(decrypted);
-}
-
-async function decrypt_gcm(content, key) {
-    const aes_key = await window.crypto.subtle.importKey('raw', key, { name: 'AES-GCM', length: 128 }, false, ['decrypt']);
-    let ciphertext = base64ToBytes(content);
-    let iv = key.slice(0, 12); /// Use first 12 bytes of key as IV. This is ok as long as the key is not reused.
-    let decrypted = new Uint8Array(await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, aes_key, ciphertext));
-    return decoder.decode(decrypted);
-}
-
-async function loadContent(fingerprint, hash) {
-    const response = await fetch(
-        clickhouse_url,
-        { method: "POST", body: `SELECT content, is_encrypted FROM data_view(fingerprint = '${fingerprint}', hash = '${hash}') FORMAT JSON` });
-
-    if (!response.ok) throw new Error(`HTTP status ${response.status}`);
-    const json = await response.json();
-    if (json.rows != 1) throw new Error('not found');
-
-    const result = json.data[0];
-    let content = result.content;
-
-    if (result.is_encrypted) {
-        let hash_params = location.hash.substring(1);
-        hash_params = hash_params.replace(/&.*$/, '');
-        const is_gcm = hash_params.endsWith('GCM');
-        if (is_gcm) {
-            hash_params = hash_params.slice(0, -3); // Remove 'GCM' suffix
-        }
-        const key = base64ToBytes(hash_params);
-        content = is_gcm ? await decrypt_gcm(content, key) : await decrypt_ctr(content, key);
-    }
-
-    return content;
-}
 
 /// ---- Model pricing (per million tokens) ----
 
@@ -1106,7 +1057,11 @@ function renderClaudeSession(content) {
     transcriptData = records.map(normalizeRecord);
     const meta = computeMeta(transcriptData);
     sessionModel = meta.model;
-    if (meta.title) document.title = meta.title;
+    if (meta.title) {
+        document.title = meta.title;
+        // Reflect the title on the opener's tab (this page runs inside its iframe).
+        if (window.parent && window.parent !== window) window.parent.postMessage({ pastilaTitle: meta.title }, '*');
+    }
     document.getElementById('transcript-meta').innerHTML = meta.html;
     renderTranscript();
 }
@@ -1201,24 +1156,7 @@ function showError(message) {
     el.classList.remove('hidden');
 }
 
-async function init() {
-    marked.setOptions({ gfm: true, breaks: true });
-    ansiUp = new AnsiUp();
-
-    const components = location.search.match(/^\?([0-9a-f]{8})\/([0-9a-f]{32})/);
-    if (!components) {
-        showError('Invalid link. Expected ?fingerprint/hash.claude.jsonl');
-        return;
-    }
-
-    let content;
-    try {
-        content = await loadContent(components[1], components[2]);
-    } catch (e) {
-        showError('Failed to load the session: ' + e.message);
-        return;
-    }
-
+function start(content) {
     document.getElementById('loading').style.display = 'none';
 
     // Rendering a session runs Markdown from the (untrusted) content through the
@@ -1232,7 +1170,26 @@ async function init() {
     renderClaudeSession(content);
 }
 
-init();
+// Receive the decrypted session content from the opener (index.html).
+let sessionStarted = false;
+window.addEventListener('message', event => {
+    if (event.source !== window.parent) return;
+    const data = event.data;
+    if (!sessionStarted && data && typeof data === 'object' && typeof data.pastilaSession === 'string') {
+        sessionStarted = true;
+        start(data.pastilaSession);
+    }
+});
+
+marked.setOptions({ gfm: true, breaks: true });
+ansiUp = new AnsiUp();
+
+if (window.parent && window.parent !== window) {
+    // Announce readiness; the opener replies with the session content.
+    window.parent.postMessage('pastila-session-ready', '*');
+} else {
+    showError('Open a Claude session through a pastila “.claude.jsonl” link.');
+}
 
 </script>
 </body>

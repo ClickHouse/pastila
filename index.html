@@ -397,6 +397,8 @@ async function load(fingerprint, hash, type) {
         }
         document.body.className = 'qrcode';
         document.body.innerHTML = `<img src="${qr_data}">`;
+    } else if (type === '.claude.jsonl') {
+        showSessionViewer(content);
     } else {
         if (prev_hash == '00000000000000000000000000000000') {
             hide();
@@ -496,6 +498,30 @@ function loadQRRenderer() {
         'sha512-PEhlWBZBrQL7flpJPY8lXx8tIN7HWX912GzGhFTDqA3iWFrakVH3lVHomCoU9BhfKzgxfEk6EG2C3xej+9srOQ==');
 }
 
+/// The Claude session viewer lives on a separate, isolated page (session.html)
+/// that is loaded only when needed. This page already loaded and decrypted the
+/// content, so the viewer does none of that itself - we just lazy-load it in an
+/// iframe and hand it the decrypted content via postMessage (no logic duplicated).
+function showSessionViewer(content) {
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;border:0;margin:0;background:#001018';
+
+    window.addEventListener('message', function onMessage(event) {
+        if (event.source !== iframe.contentWindow) return;
+        /// The viewer announces readiness; reply with the decrypted content.
+        if (event.data === 'pastila-session-ready') {
+            iframe.contentWindow.postMessage({ pastilaSession: content }, '*');
+        /// The viewer reports the session title; reflect it on this tab.
+        } else if (event.data && event.data.pastilaTitle) {
+            document.title = event.data.pastilaTitle;
+        }
+    });
+
+    iframe.src = 'session.html';
+    document.body.replaceChildren(iframe);
+    hide();
+}
+
 document.getElementById('data').addEventListener('input', event => save());
 
 // Only for non-encrypted links
@@ -506,13 +532,7 @@ back.addEventListener('click', (event) => {
 
 function restore() {
     const components = location.search.match(/^\?([0-9a-f]{8})\/([0-9a-f]{32})(\.md|\.markdown|\.html?|\.link|\.png|\.claude\.jsonl)?/);
-    if (!components) return;
-    if (components[3] === '.claude.jsonl') {
-        /// The Claude session viewer is a separate page, loaded only when needed.
-        location.replace('session.html' + location.search + location.hash);
-        return;
-    }
-    load(components[1], components[2], components[3]);
+    if (components) load(components[1], components[2], components[3]);
 }
 
 function setFavicon() {
