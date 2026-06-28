@@ -235,8 +235,6 @@ mark.search-hit.current { background: #f88; color: #000; }
 .cmd-args { color: var(--text); word-break: break-all; }
 .cmd-output { margin-top: 4px; color: #888; border-left: 2px solid #333; padding-left: 8px; font-size: 12px; }
 .cmd-caveat { color: #555; font-style: italic; font-size: 11px; margin-top: 4px; }
-
-pre.plain { white-space: pre-wrap; word-break: break-word; padding: 16px; }
 </style>
 </head>
 <body>
@@ -1066,18 +1064,6 @@ function renderClaudeSession(content) {
     renderTranscript();
 }
 
-function renderPlainText(content) {
-    document.getElementById('filters-bar').style.display = 'none';
-    document.getElementById('transcript-meta').style.display = 'none';
-    document.getElementById('sticky-prompt').style.display = 'none';
-    const pre = document.createElement('pre');
-    pre.className = 'plain';
-    pre.textContent = content;
-    const c = document.getElementById('messages-container');
-    c.innerHTML = '';
-    c.appendChild(pre);
-}
-
 /// ---- Event listeners ----
 
 document.getElementById('filter-all').addEventListener('change', e => {
@@ -1158,15 +1144,6 @@ function showError(message) {
 
 function start(content) {
     document.getElementById('loading').style.display = 'none';
-
-    // Rendering a session runs Markdown from the (untrusted) content through the
-    // page, which may include arbitrary markup -- warn before rendering, the same
-    // way the main page warns for Markdown/HTML pastes.
-    if (!confirm("⚠️ This pastila link will render as a Claude session, which may be unsafe. Press Cancel to view as plain text.")) {
-        renderPlainText(content);
-        return;
-    }
-
     renderClaudeSession(content);
 }
 
