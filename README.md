@@ -83,7 +83,7 @@ CREATE TABLE paste.data
     prev_hash_hex String EPHEMERAL '',
     is_encrypted UInt8,
 
-    CONSTRAINT length CHECK length(content) < 10 * 1024 * 1024,
+    CONSTRAINT length CHECK length(content) < 50 * 1024 * 1024,
     CONSTRAINT hash_is_correct CHECK sipHash128(content) = reinterpretAsFixedString(hash),
     CONSTRAINT not_uniform_random CHECK length(content) < 10000 OR arrayReduce('entropy', extractAll(content, '.')) < 7,
     CONSTRAINT not_constant CHECK length(content) < 10000 OR arrayReduce('uniqUpTo(1)', extractAll(content, '.')) > 1,
