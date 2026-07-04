@@ -813,7 +813,8 @@ function buildCumulativeMetrics() {
         }
         if (msg.type === 'user') {
             const cl = classifyMessage(msg);
-            if (cl.category === 'user') userPrompts++;
+            // Answers to agent questions are user input too; count them like the User filter does.
+            if (cl.category === 'user' || cl.category === 'question_answer') userPrompts++;
             if (cl.category === 'plan') plans++;
         }
 
