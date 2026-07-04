@@ -167,6 +167,10 @@ mark.search-hit.current { background: #f88; color: #000; }
 .term-block.type-user .term-prefix { color: #f88; font-weight: bold; }
 .user-icon { height: 1.4em; width: 1.4em; object-fit: cover; vertical-align: middle; border: 1px solid #000; border-radius: 100%; }
 .term-block.type-user .term-content { color: #fff; font-weight: bold; max-height: 4.5em; overflow: hidden; cursor: pointer; }
+/* Answer to an agent question, shown as a user prompt: bright answer, dim question below. */
+.qa-item { margin-bottom: 6px; }
+.qa-a { color: #fff; font-weight: bold; white-space: pre-wrap; }
+.qa-q { color: #9aa; font-weight: normal; white-space: pre-wrap; font-size: 90%; margin-top: 2px; }
 
 .term-block.type-assistant { background: #112218; padding-bottom: 0; }
 .term-block.type-assistant .term-content { color: #e0e0e0; }
@@ -419,6 +423,18 @@ function parseContentBlocks(contentStr) {
     return [{ type: 'text', text: contentStr }];
 }
 
+/// Concatenated text of all tool_result blocks in a message.
+function toolResultBlocksText(blocks) {
+    return blocks.filter(b => b.type === 'tool_result').map(b =>
+        typeof b.content === 'string' ? b.content :
+        Array.isArray(b.content) ? b.content.map(c => c.text || '').join('\n') :
+        (b.content != null ? JSON.stringify(b.content) : '')
+    ).join('\n');
+}
+
+/// Sentence the harness prepends to an AskUserQuestion answer's tool_result text.
+const QUESTION_ANSWER_PREFIX = 'Your questions have been answered:';
+
 function renderToolInput(input) {
     if (!input || typeof input !== 'object') return renderAnsi(String(input || ''));
     const lines = [];
@@ -471,6 +487,15 @@ function classifyMessage(msg) {
 
     const isToolResult = blocks.length > 0 && blocks.every(b => b.type === 'tool_result');
     const textContent = blocks.filter(b => b.type === 'text').map(b => b.text || '').join('');
+    /// The user's answer to an agent question (the AskUserQuestion tool) is recorded as a user
+    /// message whose only content is a tool_result. Classified as a plain tool_result it would
+    /// be hidden as dim tool output; instead surface it as genuine user input. The harness
+    /// prefixes the result text with QUESTION_ANSWER_PREFIX and also stores the structured
+    /// choices in toolUseResult.answers (preserved as msg.question_answers).
+    const toolResultText = toolResultBlocksText(blocks);
+    const answers = (msg.question_answers && typeof msg.question_answers === 'object' && Object.keys(msg.question_answers).length)
+        ? msg.question_answers : null;
+    const isQuestionAnswer = isToolResult && (answers !== null || toolResultText.trim().startsWith(QUESTION_ANSWER_PREFIX));
     const isAgentNotification = !isToolResult && /<task-notification>/.test(textContent);
     const isMeta = msg.is_meta === true;
     const isSkill = !isToolResult && !isAgentNotification && isMeta;
@@ -479,14 +504,15 @@ function classifyMessage(msg) {
     const isContinuation = !isToolResult && !isAgentNotification && !isSkill && !isPlan && !isInterrupt && /This session is being continued from a previous conversation/.test(textContent);
 
     let category = 'user';
-    if (isToolResult) category = 'tool_result';
+    if (isQuestionAnswer) category = 'question_answer';
+    else if (isToolResult) category = 'tool_result';
     else if (isAgentNotification) category = 'agent_notification';
     else if (isSkill) category = 'skill';
     else if (isPlan) category = 'plan';
     else if (isInterrupt) category = 'interrupt';
     else if (isContinuation) category = 'continuation';
 
-    return { category, blocks, isSidechain };
+    return { category, blocks, isSidechain, answers, toolResultText };
 }
 
 function countMessages(data) {
@@ -499,6 +525,7 @@ function countMessages(data) {
             counts.tools += cl.toolUseCount;
         } else if (cl.category === 'tool_result') counts.results++;
         else if (cl.category === 'user') counts.user++;
+        else if (cl.category === 'question_answer') counts.user++;
         else if (cl.category === 'agent_notification') counts.agent++;
         else if (cl.category === 'skill') counts.skill++;
         else if (cl.category === 'plan') counts.plan++;
@@ -610,6 +637,23 @@ function renderTranscript() {
         return `<div style="white-space:pre-wrap">${renderAnsi(text)}</div>`;
     }
 
+    /// Render the user's answer(s) to an agent question. Prefers the structured
+    /// { question: answer } map; falls back to the harness result sentence.
+    function renderQuestionAnswer(answers, fallbackText) {
+        if (answers && Object.keys(answers).length) {
+            // Lead with the answer (the actual user input); show the question dim below as
+            // context. The user block clips to a few lines, so the answer must come first.
+            return Object.entries(answers).map(([q, a]) =>
+                `<div class="qa-item"><div class="qa-a">${escapeHtml(String(a))}</div>` +
+                `<div class="qa-q">in reply to: ${escapeHtml(q)}</div></div>`
+            ).join('');
+        }
+        const cleaned = (fallbackText || '')
+            .replace(/^Your questions have been answered:\s*/, '')
+            .replace(/\s*You can now continue with these answers in mind\.\s*$/, '');
+        return `<div class="qa-item"><div class="qa-a" style="white-space:pre-wrap">${renderAnsi(cleaned || fallbackText || '')}</div></div>`;
+    }
+
     for (let mi = 0; mi < transcriptData.length; mi++) {
         const msg = transcriptData[mi];
         currentMsgIdx = mi;
@@ -623,7 +667,7 @@ function renderTranscript() {
             continue;
         }
 
-        const validCategories = ['user','assistant','tool_result','agent_notification','skill','plan','interrupt','continuation'];
+        const validCategories = ['user','question_answer','assistant','tool_result','agent_notification','skill','plan','interrupt','continuation'];
         if (!validCategories.includes(cl.category)) continue;
 
         if (cl.category === 'tool_result' && !filters.results) continue;
@@ -633,6 +677,8 @@ function renderTranscript() {
         if (cl.category === 'interrupt' && !filters.interrupt) continue;
         if (cl.category === 'continuation' && !filters.continuation) continue;
         if (cl.category === 'user' && !filters.user) continue;
+        /// Answers to agent questions are genuine user input; show them under the User filter.
+        if (cl.category === 'question_answer' && !filters.user) continue;
 
         const blocks = cl.blocks;
 
@@ -678,6 +724,15 @@ function renderTranscript() {
             interrupt:          '✖',
             continuation:       '…',
         };
+        // An answer to an agent question renders as a user prompt (user icon + nav), showing
+        // the chosen answer(s) rather than the raw tool_result wrapper.
+        if (cl.category === 'question_answer') {
+            const bodyHtml = renderQuestionAnswer(cl.answers, cl.toolResultText);
+            if (!bodyHtml.trim()) continue;
+            emit('user', prefixMap.user, bodyHtml, msg, isSidechain);
+            continue;
+        }
+
         const prefix = prefixMap[cl.category] || '';
 
         let bodyHtml = '';
@@ -989,6 +1044,8 @@ function normalizeRecord(r) {
         tool_result_content: typeof tur.content === 'string' ? tur.content : (tur.content != null ? JSON.stringify(tur.content) : ''),
         tool_result_stdout: tur.stdout || '',
         tool_result_stderr: tur.stderr || '',
+        /// Structured answers to an agent question (AskUserQuestion): { question: answer }.
+        question_answers: (tur.answers && typeof tur.answers === 'object') ? tur.answers : null,
         cwd: r.cwd || '',
     };
 }
