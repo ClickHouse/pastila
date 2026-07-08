@@ -524,6 +524,103 @@ function showSessionViewer(content) {
 
 document.getElementById('data').addEventListener('input', event => save());
 
+/// Tab / Shift+Tab indent and outdent instead of moving focus.
+{
+    const indent_width = 4;
+    const indent_string = ' '.repeat(indent_width);
+    document.getElementById('data').style.tabSize = indent_width;
+
+    /// How many spaces wide the text looks on screen.
+    /// Our Tab key inserts spaces, but pasted content can contain tab characters.
+    /// Each is counted as what it looks like on screen.
+    function visualWidth(text) {
+        let column = 0;
+        for (const char of text) {
+            column += char === '\t' ? indent_width - column % indent_width : 1;
+        }
+        return column;
+    }
+
+    /// Returns the edit for a Tab or Shift+Tab keypress, or null if there is nothing to change.
+    function computeIndentEdit(value, selection_start, selection_end, is_shift) {
+        const line_start = value.lastIndexOf('\n', selection_start - 1) + 1;
+
+        /// Without a newline in the selection, Tab inserts spaces to the next tab stop (like typing).
+        const first_newline = value.indexOf('\n', selection_start);
+        if (!is_shift && (first_newline === -1 || first_newline >= selection_end)) {
+            const cursor_column = visualWidth(value.slice(line_start, selection_start));
+            const spaces_to_next_tab_stop = indent_width - cursor_column % indent_width;
+            return {
+                replace_start: selection_start, replace_end: selection_end,
+                replacement: ' '.repeat(spaces_to_next_tab_stop),
+                new_selection_start: selection_start + spaces_to_next_tab_stop,
+                new_selection_end: selection_start + spaces_to_next_tab_stop
+            };
+        }
+
+        /// Expand line operations to whole lines. A selection ending at column 1 does not include that line.
+        let range_end = (selection_end > selection_start && value[selection_end - 1] === '\n') ? selection_end - 1 : selection_end;
+        const next_newline = value.indexOf('\n', range_end);
+        range_end = next_newline === -1 ? value.length : next_newline;
+
+        const range_text = value.slice(line_start, range_end);
+        const lines = range_text.split('\n');
+        const new_lines = lines.map(line => {
+            /// Indenting adds one unit and skips empty lines.
+            if (!is_shift) return line.length === 0 ? line : indent_string + line;
+
+            /// Outdenting snaps the leading whitespace to the previous tab stop.
+            const whitespace = line.match(/^[ \t]*/)[0];
+            if (whitespace.length === 0) return line;
+            const width = visualWidth(whitespace);
+            return ' '.repeat((width - 1) - (width - 1) % indent_width) + line.slice(whitespace.length);
+        });
+
+        const replacement = new_lines.join('\n');
+        if (replacement === range_text) return null;
+        const first_line_delta = new_lines[0].length - lines[0].length;
+
+        /// Keep the selection over the same lines. The start moves with the first line and the end with the total change.
+        const new_selection_start = selection_start === line_start ? line_start : Math.max(line_start, selection_start + first_line_delta);
+        const new_selection_end = Math.max(new_selection_start, selection_end + replacement.length - range_text.length);
+        return { replace_start: line_start, replace_end: range_end, replacement, new_selection_start, new_selection_end };
+    }
+
+    document.getElementById('data').addEventListener('keydown', event => {
+        const data = event.target;
+
+        /// Escape, then Tab moves focus out of the editor (no keyboard trap).
+        if (event.key === 'Escape') {
+            data.blur();
+            return;
+        }
+        if (event.key !== 'Tab' || event.ctrlKey || event.metaKey || event.altKey) return;
+        event.preventDefault();
+
+        const selection_start = data.selectionStart;
+        const selection_end = data.selectionEnd;
+        const edit = computeIndentEdit(data.value, selection_start, selection_end, event.shiftKey);
+        if (!edit) return;
+
+        /// execCommand applies the edit as if typed, keeping it on the native undo stack.
+        /// Removal-only edits use the delete command as insertText with an empty string does nothing.
+        /// A browser without execCommand support returns false or throws, the catch folds both into applied = false.
+        data.setSelectionRange(edit.replace_start, edit.replace_end);
+        let applied = false;
+        try {
+            applied = edit.replacement.length !== 0
+                ? document.execCommand('insertText', false, edit.replacement)
+                : document.execCommand('delete');
+        } catch (e) { }
+        if (applied) {
+            data.setSelectionRange(edit.new_selection_start, edit.new_selection_end);
+        } else {
+            data.setSelectionRange(selection_start, selection_end);
+            console.warn('Tab indentation is not supported in this browser.');
+        }
+    });
+}
+
 // Only for non-encrypted links
 back.addEventListener('click', (event) => {
     load(prev_fingerprint, prev_hash);
