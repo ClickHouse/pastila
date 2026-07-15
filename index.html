@@ -291,9 +291,7 @@ async function decrypt_ctr(content, key) {
     let ciphertext = base64ToBytes(content);
 
     let counter = new Uint8Array(16); /// This is ok as long as the key is not reused.
-    let decrypted = new Uint8Array(await window.crypto.subtle.decrypt({ name: "AES-CTR", counter: counter, length: 128 }, aes_key, ciphertext));
-
-    return decoder.decode(decrypted);
+    return new Uint8Array(await window.crypto.subtle.decrypt({ name: "AES-CTR", counter: counter, length: 128 }, aes_key, ciphertext));
 }
 
 async function decrypt_gcm(content, key) {
@@ -302,9 +300,12 @@ async function decrypt_gcm(content, key) {
     let ciphertext = base64ToBytes(content);
 
     let iv = key.slice(0, 12); /// Use first 12 bytes of key as IV. This is ok as long as the key is not reused.
-    let decrypted = new Uint8Array(await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, aes_key, ciphertext));
+    return new Uint8Array(await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, aes_key, ciphertext));
+}
 
-    return decoder.decode(decrypted);
+async function gunzip(bytes) {
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
 function bytesToBase64(bytes) {
@@ -316,10 +317,15 @@ function bytesToBase64(bytes) {
 }
 
 function base64ToBytes(base64) {
-    return result = new Uint8Array([...window.atob(base64)].map(x => x.charCodeAt(0)));
+    const binary = window.atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
 }
 
-async function load(fingerprint, hash, type) {
+async function load(fingerprint, hash, type, compressed) {
     show(wait);
 
     const response = await fetch(
@@ -367,6 +373,21 @@ async function load(fingerprint, hash, type) {
             alert("Decryption failed - wrong key or corrupted data");
             throw new Error("Decryption failed - wrong key or corrupted data");
         }
+    }
+
+    if (compressed) {
+        try {
+            /// Compressed content is binary, so it is stored base64-encoded when not encrypted.
+            if (!is_encrypted) content = base64ToBytes(content);
+            content = await gunzip(content);
+        } catch (e) {
+            show(error);
+            alert("Decompression failed - corrupted data");
+            throw e;
+        }
+    }
+    if (content instanceof Uint8Array) {
+        content = decoder.decode(content);
     }
 
     // Set the content in any case (even if rendering as HTML/MD/QR, we fall back to plaintext view anyway).
@@ -628,8 +649,8 @@ back.addEventListener('click', (event) => {
 });
 
 function restore() {
-    const components = location.search.match(/^\?([0-9a-f]{8})\/([0-9a-f]{32})(\.md|\.markdown|\.html?|\.link|\.png|\.claude\.jsonl)?/);
-    if (components) load(components[1], components[2], components[3]);
+    const components = location.search.match(/^\?([0-9a-f]{8})\/([0-9a-f]{32})(\.md|\.markdown|\.html?|\.link|\.png|\.claude\.jsonl)?(\.gz)?/);
+    if (components) load(components[1], components[2], components[3], components[4] === '.gz');
 }
 
 function setFavicon() {

@@ -17,7 +17,8 @@ Features:
 - just copy the link from the address bar - it is a permanent link to the data;
 - you can edit already saved data but the new link will be created and the old links remain permanent;
 - you can host Markdown pages - just add `.md` to the URL before the `#` anchor and share it;
-- you can host HTML pages - just add `.html` to the URL before the `#` anchor and share it
+- you can host compressed content - to decompress on rendering add `.gz` to the URL before the `#` anchor and share it;
+- you can host HTML pages - just add `.html` to the URL before the `#` anchor and share it;
   this is very insecure, see "open redirect";
 - you can host a link shortener - just add `.link` to the URL before the `#` anchor and share it;
 - you can view and share Claude Code sessions - just add `.claude.jsonl` to the URL before the `#` anchor;
