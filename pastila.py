@@ -124,10 +124,9 @@ def save(data, encrypt, compress):
     if encrypt:
         cipher = Cipher(algorithms.AES(key), modes.CTR(b'\x00' * 16), backend=default_backend())
         encryptor = cipher.encryptor()
-        encrypted = encryptor.update(data) + encryptor.finalize()
-        data = base64.b64encode(encrypted)
+        data = encryptor.update(data) + encryptor.finalize()
         url_suffix = '#' + base64.b64encode(key).decode()
-    elif compress:
+    if encrypt or compress:
         # Compressed content is binary, so it is stored base64-encoded when not encrypted.
         data = base64.b64encode(data)
 
