@@ -397,7 +397,8 @@ async function load(fingerprint, hash, type, compressed) {
         try {
             /// Compressed content is binary, so it is stored base64-encoded when not encrypted.
             if (!is_encrypted) content = base64ToBytes(content);
-            content = await gunzip(content, 1024 * 1024 * 1024);
+            /// The limit is the lower bound of the maximum JS string length across platforms (2^28 - 16 on 32-bit).
+            content = await gunzip(content, 256 * 1024 * 1024 - 16);
         } catch (e) {
             show(error);
             alert(`Decompression failed - ${e.message}`);
@@ -405,7 +406,13 @@ async function load(fingerprint, hash, type, compressed) {
         }
     }
     if (content instanceof Uint8Array) {
-        content = decoder.decode(content);
+        try {
+            content = decoder.decode(content);
+        } catch (e) {
+            show(error);
+            alert(`Failed to decode content - ${e.message}`);
+            throw e;
+        }
     }
 
     // Set the content in any case (even if rendering as HTML/MD/QR, we fall back to plaintext view anyway).
