@@ -303,9 +303,27 @@ async function decrypt_gcm(content, key) {
     return new Uint8Array(await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, aes_key, ciphertext));
 }
 
-async function gunzip(bytes) {
-    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
-    return new Uint8Array(await new Response(stream).arrayBuffer());
+async function gunzip(bytes, limit) {
+    const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip')).getReader();
+    const chunks = [];
+    let size = 0;
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.length;
+        if (size > limit) {
+            await reader.cancel();
+            throw new Error(`decompressed size exceeds ${limit} bytes`);
+        }
+        chunks.push(value);
+    }
+    const result = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+        result.set(chunk, offset);
+        offset += chunk.length;
+    }
+    return result;
 }
 
 function bytesToBase64(bytes) {
@@ -379,10 +397,10 @@ async function load(fingerprint, hash, type, compressed) {
         try {
             /// Compressed content is binary, so it is stored base64-encoded when not encrypted.
             if (!is_encrypted) content = base64ToBytes(content);
-            content = await gunzip(content);
+            content = await gunzip(content, 1024 * 1024 * 1024);
         } catch (e) {
             show(error);
-            alert("Decompression failed - corrupted data");
+            alert(`Decompression failed - ${e.message}`);
             throw e;
         }
     }
