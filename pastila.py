@@ -1,6 +1,7 @@
 #!/usr/bin/python3
-import sys, requests, json, re, base64, os
+import sys, requests, json, re, base64, os, gzip
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.backends import default_backend
 
 #
@@ -80,9 +81,9 @@ def error(s):
 #    return min(hashes)
 
 def load(url):
-    r = re.match(r"^(?:(?:(?:(?:(?:https?:)?//)?pastila\.nl)?/)?\?)?([a-f0-9]+)/([a-f0-9]+)(?:#(.+))?$", url)
+    r = re.match(r"^(?:(?:(?:(?:(?:https?:)?//)?pastila\.nl)?/)?\?)?([a-f0-9]+)/([a-f0-9]+)((?:\.[a-z0-9]+)*)(?:#(.+))?$", url)
     if r is None: error('bad url')
-    fingerprint, hash_hex, key = r.groups()
+    fingerprint, hash_hex, ext, key = r.groups()
 
     response = requests.post('https://uzg8q0g12h.eu-central-1.aws.clickhouse.cloud/?user=paste', data=f"SELECT content, is_encrypted FROM data_view(fingerprint = '{fingerprint}', hash = '{hash_hex}') FORMAT JSON")
     if not response.ok: error(f"{response} {response.content}")
@@ -94,24 +95,40 @@ def load(url):
 
     if is_encrypted:
         if key is None: error("paste is encrypted, but the url contains no key (part after '#')")
+        is_gcm = key.endswith('GCM')
+        if is_gcm: key = key[:-3]
         key = base64.b64decode(key)
         content = base64.b64decode(content)
-        cipher = Cipher(algorithms.AES(key), modes.CTR(b'\x00' * 16), backend=default_backend())
-        decryptor = cipher.decryptor()
-        decrypted = decryptor.update(content) + decryptor.finalize()
-        content = decrypted
+        if is_gcm:
+            content = AESGCM(key).decrypt(key[:12], content, None)
+        else:
+            cipher = Cipher(algorithms.AES(key), modes.CTR(b'\x00' * 16), backend=default_backend())
+            decryptor = cipher.decryptor()
+            content = decryptor.update(content) + decryptor.finalize()
 
-    return content
+    if ext.endswith('.gz'):
+        # Compressed content is binary, so it is stored base64-encoded when not encrypted.
+        if not is_encrypted:
+            content = base64.b64decode(content)
+        content = gzip.decompress(content)
 
-def save(data, encrypt):
+    return content if isinstance(content, bytes) else content.encode()
+
+def save(data, encrypt, compress):
     key = os.urandom(16)
+    ext = ""
     url_suffix = ""
+    if compress:
+        data = gzip.compress(data)
+        ext = ".gz"
     if encrypt:
         cipher = Cipher(algorithms.AES(key), modes.CTR(b'\x00' * 16), backend=default_backend())
         encryptor = cipher.encryptor()
-        encrypted = encryptor.update(data) + encryptor.finalize()
-        data = base64.b64encode(encrypted)
+        data = encryptor.update(data) + encryptor.finalize()
         url_suffix = '#' + base64.b64encode(key).decode()
+    if encrypt or compress:
+        # Compressed content is binary, so it is stored base64-encoded when not encrypted.
+        data = base64.b64encode(data)
 
     h = sipHash128(data)
     fingerprint = 'cafebabe' # getFingerprint(data)
@@ -124,18 +141,16 @@ def save(data, encrypt):
     })
     response = requests.post('https://uzg8q0g12h.eu-central-1.aws.clickhouse.cloud/?user=paste', data=f'INSERT INTO data (fingerprint_hex, hash_hex, content, is_encrypted) FORMAT JSONEachRow {payload}')
     if not response.ok: error(f"{response} {response.content}")
-    print(f"https://pastila.nl/?{fingerprint}/{h}{url_suffix}")
+    print(f"https://pastila.nl/?{fingerprint}/{h}{ext}{url_suffix}")
 
 
-if len(sys.argv) == 1:
+args = sys.argv[1:]
+if all(arg in ('plain', 'gzip') for arg in args):
     data = sys.stdin.buffer.read()
-    save(data, True)
-elif len(sys.argv) == 2 and sys.argv[1] == 'plain':
-    data = sys.stdin.buffer.read()
-    save(data, False)
-elif len(sys.argv) == 2:
-    data = load(sys.argv[1])
+    save(data, 'plain' not in args, 'gzip' in args)
+elif len(args) == 1:
+    data = load(args[0])
     sys.stdout.buffer.write(data)
 else:
-    print("usage: pastila.py [url]")
+    print("usage: pastila.py [plain] [gzip] | pastila.py <url>")
     sys.exit(1)
