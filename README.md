@@ -23,6 +23,8 @@ Features:
 - you can host a link shortener - just add `.link` to the URL before the `#` anchor and share it;
 - you can view and share Claude Code sessions - just add `.claude.jsonl` to the URL before the `#` anchor;
   the session (JSONL, one record per line) is rendered like the viewer at https://github.com/ClickHouse/alexeyprompts;
+- you can host terminal output with colors - just add `.terminal` to the URL before the `#` anchor and share it;
+  ANSI/VT100 escape sequences (colors, bold, underline, etc.) are rendered on a black background like a real terminal;
 - browser history is used while editing for easy undo;
 - edit history is also saved in the database: after you load the data,
   previous version of the data is available by clicking the "back" button in bottom right corner;
