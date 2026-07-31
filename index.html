@@ -419,8 +419,10 @@ function ansiToHtml(text) {
         }
     }
 
-    /// Matches SGR/other CSI sequences, OSC sequences (terminated by BEL or ST), and single-character escapes.
-    const re = /\x1b(?:\[([0-9;]*)([A-Za-z])|\][^\x07\x1b]*(?:\x07|\x1b\\)|[()][AB0-2]|[=>M78])/g;
+    /// Matches CSI sequences with the full ECMA-48 grammar (parameter bytes 0x30-0x3f, so private
+    /// sequences like \x1b[?25l are consumed too; intermediate bytes 0x20-0x2f; final byte 0x40-0x7e),
+    /// OSC sequences (terminated by BEL or ST), and single-character escapes (incl. RIS).
+    const re = /\x1b(?:\[([0-9:;<=>?]*)[ -\/]*([@-~])|\][^\x07\x1b]*(?:\x07|\x1b\\)|[()][AB0-2]|[=>M78c])/g;
 
     let out = '';
     let spanOpen = false;
@@ -429,14 +431,16 @@ function ansiToHtml(text) {
     while ((match = re.exec(text)) !== null) {
         if (match.index > pos) out += escapeHtml(text.slice(pos, match.index));
         const params = match[1];
-        const cmd = match[2];
-        if (cmd === 'm') {
-            applySGR(params);
+        /// Only standard SGR changes styling (private-parameter ones like \x1b[?...m do not), plus
+        /// RIS (\x1bc) which is a full terminal reset. Everything else carries no renderable text
+        /// and is dropped.
+        const isSGR = match[2] === 'm' && !/[<=>?]/.test(params);
+        if (isSGR || match[0] === '\x1bc') {
+            applySGR(isSGR ? params : '');
             if (spanOpen) { out += '</span>'; spanOpen = false; }
             const css = currentStyle();
             if (css) { out += `<span style="${css}">`; spanOpen = true; }
         }
-        /// Other CSI commands (cursor movement, clear screen, etc.) carry no renderable text and are dropped.
         pos = re.lastIndex;
     }
     out += escapeHtml(text.slice(pos));
