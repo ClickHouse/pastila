@@ -350,6 +350,13 @@ async function gunzip(bytes, limit) {
 function ansiToHtml(text) {
     const escapeHtml = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+    /// Logs copied from `less` (without -R) or `cat -v` carry ESC as the literal two characters
+    /// "^[". Decode that back, but only when the paste as a whole looks caret-encoded (no real
+    /// ESC bytes and at least one caret-form SGR), so prose merely containing "^[" is untouched.
+    if (!text.includes('\x1b') && /\^\[\[[0-9;]*m/.test(text)) {
+        text = text.replace(/\^\[(?=\[[0-9;]*[A-Za-z])/g, '\x1b');
+    }
+
     /// Simulate carriage-return overprinting (progress bars, spinners): within a line only the
     /// text after the last \r survives, while SGR state changes from the overwritten part still apply.
     text = text.replace(/\r+\n/g, '\n');
