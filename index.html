@@ -387,14 +387,17 @@ function ansiToHtml(text) {
     }
 
     function applySGR(params) {
-        const codes = params === '' ? [0] : params.split(';').map(Number);
-        for (let i = 0; i < codes.length; i++) {
-            const c = codes[i];
+        const rgbOf = a => a.length === 3 && a.every(Number.isFinite) ? `rgb(${a.join(',')})` : null;
+        const parts = params === '' ? ['0'] : params.split(';');
+        for (let i = 0; i < parts.length; i++) {
+            /// ITU T.416 colon-separated subparameters: 38:5:n, 38:2::r:g:b, 4:3, etc.
+            const sub = parts[i].split(':').map(Number);
+            const c = sub[0] || 0;
             if (c === 0) { fg = bg = null; bold = dim = italic = underline = strike = inverse = false; }
             else if (c === 1) bold = true;
             else if (c === 2) dim = true;
             else if (c === 3) italic = true;
-            else if (c === 4) underline = true;
+            else if (c === 4) underline = sub.length < 2 || sub[1] !== 0;
             else if (c === 7) inverse = true;
             else if (c === 9) strike = true;
             else if (c === 21 || c === 22) { bold = false; dim = false; }
@@ -403,16 +406,22 @@ function ansiToHtml(text) {
             else if (c === 27) inverse = false;
             else if (c === 29) strike = false;
             else if (c >= 30 && c <= 37) fg = PALETTE[c - 30];
-            else if (c === 38) {
-                if (codes[i + 1] === 5) { fg = color256(codes[i + 2]); i += 2; }
-                else if (codes[i + 1] === 2) { fg = `rgb(${codes[i + 2]},${codes[i + 3]},${codes[i + 4]})`; i += 4; }
+            else if (c === 38 || c === 48) {
+                let color = null;
+                if (sub.length > 1) {
+                    if (sub[1] === 5) color = color256(sub[2]);
+                    else if (sub[1] === 2) color = rgbOf(sub.length > 5 ? sub.slice(3, 6) : sub.slice(2, 5));
+                } else if (Number(parts[i + 1]) === 5) {
+                    color = color256(parts[i + 2]);
+                    i += 2;
+                } else if (Number(parts[i + 1]) === 2) {
+                    color = rgbOf(parts.slice(i + 2, i + 5).map(Number));
+                    i += 4;
+                }
+                if (c === 38) fg = color; else bg = color;
             }
             else if (c === 39) fg = null;
             else if (c >= 40 && c <= 47) bg = PALETTE[c - 40];
-            else if (c === 48) {
-                if (codes[i + 1] === 5) { bg = color256(codes[i + 2]); i += 2; }
-                else if (codes[i + 1] === 2) { bg = `rgb(${codes[i + 2]},${codes[i + 3]},${codes[i + 4]})`; i += 4; }
-            }
             else if (c === 49) bg = null;
             else if (c >= 90 && c <= 97) fg = PALETTE[c - 90 + 8];
             else if (c >= 100 && c <= 107) bg = PALETTE[c - 100 + 8];
