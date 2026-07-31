@@ -350,6 +350,18 @@ async function gunzip(bytes, limit) {
 function ansiToHtml(text) {
     const escapeHtml = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+    /// Simulate carriage-return overprinting (progress bars, spinners): within a line only the
+    /// text after the last \r survives, while SGR state changes from the overwritten part still apply.
+    text = text.replace(/\r+\n/g, '\n');
+    if (text.includes('\r')) {
+        text = text.split('\n').map(line => {
+            line = line.replace(/\r+$/, '');
+            const i = line.lastIndexOf('\r');
+            if (i < 0) return line;
+            return (line.slice(0, i).match(/\x1b\[[0-9:;]*m/g) || []).join('') + line.slice(i + 1);
+        }).join('\n');
+    }
+
     /// Standard 16-color ANSI palette (0-7 normal, 8-15 bright).
     const PALETTE = [
         '#000000', '#cd0000', '#00cd00', '#cdcd00', '#0000ee', '#cd00cd', '#00cdcd', '#e5e5e5',
