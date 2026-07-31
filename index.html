@@ -368,11 +368,14 @@ function ansiToHtml(text) {
         return `rgb(${v},${v},${v})`;
     }
 
+    /// fg/bg hold either an index into PALETTE (16-color codes keep the index so that bold can
+    /// brighten it, like most terminals) or a literal CSS color (256-color/truecolor codes).
     let fg = null, bg = null, bold = false, dim = false, italic = false, underline = false, strike = false, inverse = false;
 
     function currentStyle() {
-        let a = fg, b = bg;
-        if (inverse) { a = bg || '#000'; b = fg || '#fff'; }
+        const resolve = (c, brighten) => typeof c === 'number' ? PALETTE[brighten && c < 8 ? c + 8 : c] : c;
+        let a = resolve(fg, bold), b = resolve(bg, false);
+        if (inverse) [a, b] = [b || '#000', a || '#e5e5e5'];
         let css = '';
         if (a) css += `color:${a};`;
         if (b) css += `background:${b};`;
@@ -399,13 +402,14 @@ function ansiToHtml(text) {
             else if (c === 3) italic = true;
             else if (c === 4) underline = sub.length < 2 || sub[1] !== 0;
             else if (c === 7) inverse = true;
+            else if (c === 21) underline = true;  /// ECMA-48: doubly underlined
             else if (c === 9) strike = true;
-            else if (c === 21 || c === 22) { bold = false; dim = false; }
+            else if (c === 22) { bold = false; dim = false; }
             else if (c === 23) italic = false;
             else if (c === 24) underline = false;
             else if (c === 27) inverse = false;
             else if (c === 29) strike = false;
-            else if (c >= 30 && c <= 37) fg = PALETTE[c - 30];
+            else if (c >= 30 && c <= 37) fg = c - 30;
             else if (c === 38 || c === 48) {
                 let color = null;
                 if (sub.length > 1) {
@@ -421,10 +425,10 @@ function ansiToHtml(text) {
                 if (c === 38) fg = color; else bg = color;
             }
             else if (c === 39) fg = null;
-            else if (c >= 40 && c <= 47) bg = PALETTE[c - 40];
+            else if (c >= 40 && c <= 47) bg = c - 40;
             else if (c === 49) bg = null;
-            else if (c >= 90 && c <= 97) fg = PALETTE[c - 90 + 8];
-            else if (c >= 100 && c <= 107) bg = PALETTE[c - 100 + 8];
+            else if (c >= 90 && c <= 97) fg = c - 90 + 8;
+            else if (c >= 100 && c <= 107) bg = c - 100 + 8;
         }
     }
 
