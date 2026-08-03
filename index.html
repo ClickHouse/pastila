@@ -125,6 +125,24 @@
             width: min(50vw, 50vh);
         }
 
+        .terminal, .terminal pre {
+            margin: 0;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+
+        .terminal {
+            background: #000;
+            overflow: auto;
+        }
+
+        .terminal pre {
+            padding: 0.5em;
+            color: #e5e5e5;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
         @media (prefers-color-scheme: dark) {
             body, textarea {
                 background-color: #000;
@@ -326,6 +344,142 @@ async function gunzip(bytes, limit) {
     return result;
 }
 
+/// Renders ANSI/VT100 escape sequences (colors, styles) as HTML, for the `.terminal` extension.
+/// Only SGR (`...m`) sequences affect output; other CSI/OSC sequences (cursor movement, clear
+/// screen, window title, etc.) are recognized and stripped rather than shown as garbage.
+function ansiToHtml(text) {
+    const escapeHtml = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    /// Logs copied from `less` (without -R) or `cat -v` carry ESC as the literal two characters
+    /// "^[". Decode that back, but only when the paste as a whole looks caret-encoded (no real
+    /// ESC bytes and at least one caret-form SGR), so prose merely containing "^[" is untouched.
+    if (!text.includes('\x1b') && /\^\[\[[0-9:;]*m/.test(text)) {
+        text = text.replace(/\^\[(?=\[[0-9:;]*[A-Za-z])/g, '\x1b');
+    }
+
+    /// Simulate carriage-return overprinting (progress bars, spinners): within a line only the
+    /// text after the last \r survives, while SGR state changes from the overwritten part still apply.
+    text = text.replace(/\r+\n/g, '\n');
+    if (text.includes('\r')) {
+        text = text.split('\n').map(line => {
+            line = line.replace(/\r+$/, '');
+            const i = line.lastIndexOf('\r');
+            if (i < 0) return line;
+            return (line.slice(0, i).match(/\x1b\[[0-9:;]*m/g) || []).join('') + line.slice(i + 1);
+        }).join('\n');
+    }
+
+    /// Standard 16-color ANSI palette (0-7 normal, 8-15 bright).
+    const PALETTE = [
+        '#000000', '#cd0000', '#00cd00', '#cdcd00', '#0000ee', '#cd00cd', '#00cdcd', '#e5e5e5',
+        '#7f7f7f', '#ff0000', '#00ff00', '#ffff00', '#5c5cff', '#ff00ff', '#00ffff', '#ffffff'
+    ];
+
+    function color256(n) {
+        n = Number(n) || 0;
+        if (n < 16) return PALETTE[n];
+        if (n < 232) {
+            n -= 16;
+            const levels = [0, 95, 135, 175, 215, 255];
+            return `rgb(${levels[Math.floor(n / 36)]},${levels[Math.floor(n / 6) % 6]},${levels[n % 6]})`;
+        }
+        const v = 8 + (n - 232) * 10;
+        return `rgb(${v},${v},${v})`;
+    }
+
+    /// fg/bg hold either an index into PALETTE (16-color codes keep the index so that bold can
+    /// brighten it, like most terminals) or a literal CSS color (256-color/truecolor codes).
+    let fg = null, bg = null, bold = false, dim = false, italic = false, underline = false, strike = false, inverse = false;
+
+    function currentStyle() {
+        const resolve = (c, brighten) => typeof c === 'number' ? PALETTE[brighten && c < 8 ? c + 8 : c] : c;
+        let a = resolve(fg, bold), b = resolve(bg, false);
+        if (inverse) [a, b] = [b || '#000', a || '#e5e5e5'];
+        let css = '';
+        if (a) css += `color:${a};`;
+        if (b) css += `background:${b};`;
+        if (bold) css += 'font-weight:bold;';
+        if (dim) css += 'opacity:0.65;';
+        if (italic) css += 'font-style:italic;';
+        const deco = [];
+        if (underline) deco.push('underline');
+        if (strike) deco.push('line-through');
+        if (deco.length) css += `text-decoration:${deco.join(' ')};`;
+        return css;
+    }
+
+    function applySGR(params) {
+        const rgbOf = a => a.length === 3 && a.every(Number.isFinite) ? `rgb(${a.join(',')})` : null;
+        const parts = params === '' ? ['0'] : params.split(';');
+        for (let i = 0; i < parts.length; i++) {
+            /// ITU T.416 colon-separated subparameters: 38:5:n, 38:2::r:g:b, 4:3, etc.
+            const sub = parts[i].split(':').map(Number);
+            const c = sub[0] || 0;
+            if (c === 0) { fg = bg = null; bold = dim = italic = underline = strike = inverse = false; }
+            else if (c === 1) bold = true;
+            else if (c === 2) dim = true;
+            else if (c === 3) italic = true;
+            else if (c === 4) underline = sub.length < 2 || sub[1] !== 0;
+            else if (c === 7) inverse = true;
+            else if (c === 21) underline = true;  /// ECMA-48: doubly underlined
+            else if (c === 9) strike = true;
+            else if (c === 22) { bold = false; dim = false; }
+            else if (c === 23) italic = false;
+            else if (c === 24) underline = false;
+            else if (c === 27) inverse = false;
+            else if (c === 29) strike = false;
+            else if (c >= 30 && c <= 37) fg = c - 30;
+            else if (c === 38 || c === 48) {
+                let color = null;
+                if (sub.length > 1) {
+                    if (sub[1] === 5) color = color256(sub[2]);
+                    else if (sub[1] === 2) color = rgbOf(sub.length > 5 ? sub.slice(3, 6) : sub.slice(2, 5));
+                } else if (Number(parts[i + 1]) === 5) {
+                    color = color256(parts[i + 2]);
+                    i += 2;
+                } else if (Number(parts[i + 1]) === 2) {
+                    color = rgbOf(parts.slice(i + 2, i + 5).map(Number));
+                    i += 4;
+                }
+                if (c === 38) fg = color; else bg = color;
+            }
+            else if (c === 39) fg = null;
+            else if (c >= 40 && c <= 47) bg = c - 40;
+            else if (c === 49) bg = null;
+            else if (c >= 90 && c <= 97) fg = c - 90 + 8;
+            else if (c >= 100 && c <= 107) bg = c - 100 + 8;
+        }
+    }
+
+    /// Matches CSI sequences with the full ECMA-48 grammar (parameter bytes 0x30-0x3f, so private
+    /// sequences like \x1b[?25l are consumed too; intermediate bytes 0x20-0x2f; final byte 0x40-0x7e),
+    /// OSC sequences (terminated by BEL or ST), and single-character escapes (incl. RIS).
+    const re = /\x1b(?:\[([0-9:;<=>?]*)[ -\/]*([@-~])|\][^\x07\x1b]*(?:\x07|\x1b\\)|[()][AB0-2]|[=>M78c])/g;
+
+    let out = '';
+    let spanOpen = false;
+    let pos = 0;
+    let match;
+    while ((match = re.exec(text)) !== null) {
+        if (match.index > pos) out += escapeHtml(text.slice(pos, match.index));
+        const params = match[1];
+        /// Only standard SGR changes styling (private-parameter ones like \x1b[?...m do not), plus
+        /// RIS (\x1bc) which is a full terminal reset. Everything else carries no renderable text
+        /// and is dropped.
+        const isSGR = match[2] === 'm' && !/[<=>?]/.test(params);
+        if (isSGR || match[0] === '\x1bc') {
+            applySGR(isSGR ? params : '');
+            if (spanOpen) { out += '</span>'; spanOpen = false; }
+            const css = currentStyle();
+            if (css) { out += `<span style="${css}">`; spanOpen = true; }
+        }
+        pos = re.lastIndex;
+    }
+    out += escapeHtml(text.slice(pos));
+    if (spanOpen) out += '</span>';
+    return out;
+}
+
 function bytesToBase64(bytes) {
     let string = '';
     for (const char of bytes) {
@@ -445,6 +599,9 @@ async function load(fingerprint, hash, type, compressed) {
         document.body.innerHTML = `<img src="${qr_data}">`;
     } else if (type === '.claude.jsonl') {
         showSessionViewer(content);
+    } else if (type === '.terminal') {
+        document.body.className = 'terminal';
+        document.body.innerHTML = `<pre>${ansiToHtml(content)}</pre>`;
     } else {
         if (prev_hash == '00000000000000000000000000000000') {
             hide();
@@ -674,7 +831,7 @@ back.addEventListener('click', (event) => {
 });
 
 function restore() {
-    const components = location.search.match(/^\?([0-9a-f]{8})\/([0-9a-f]{32})(\.md|\.markdown|\.html?|\.link|\.png|\.claude\.jsonl)?(\.gz)?/);
+    const components = location.search.match(/^\?([0-9a-f]{8})\/([0-9a-f]{32})(\.md|\.markdown|\.html?|\.link|\.png|\.claude\.jsonl|\.terminal)?(\.gz)?/);
     if (components) load(components[1], components[2], components[3], components[4] === '.gz');
 }
 
