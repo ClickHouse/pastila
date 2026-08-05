@@ -20,6 +20,8 @@ Features:
 - you can host compressed content - to decompress on rendering add `.gz` to the URL before the `#` anchor and share it;
 - you can host HTML pages - just add `.html` to the URL before the `#` anchor and share it;
   this is very insecure, see "open redirect";
+  append `&sandbox` to the anchor to render without a confirmation dialog in an opaque-origin sandbox;
+  scripts, forms, and top-level navigation are disabled in this mode;
 - you can host a link shortener - just add `.link` to the URL before the `#` anchor and share it;
 - you can view and share Claude Code sessions - just add `.claude.jsonl` to the URL before the `#` anchor;
   the session (JSONL, one record per line) is rendered like the viewer at https://github.com/ClickHouse/alexeyprompts;

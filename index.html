@@ -497,6 +497,20 @@ function base64ToBytes(base64) {
     return bytes;
 }
 
+function hasHashOption(option) {
+    return location.hash.substring(1).split('&').slice(1).includes(option);
+}
+
+function showSandboxedHtml(content) {
+    const iframe = document.createElement('iframe');
+    iframe.title = 'Sandboxed Pastila HTML';
+    iframe.setAttribute('sandbox', 'allow-popups allow-popups-to-escape-sandbox');
+    iframe.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;border:0;margin:0;background:#fff';
+    iframe.srcdoc = content;
+    document.body.replaceChildren(iframe);
+    hide();
+}
+
 async function load(fingerprint, hash, type, compressed) {
     show(wait);
 
@@ -573,7 +587,9 @@ async function load(fingerprint, hash, type, compressed) {
     document.getElementById('data').value = content;
 
     if (type === '.html' || type == '.htm') {
-        if (document.documentURI.indexOf("96d540560fc9de34f2bf24d5c2b9d62a.html") > 0 ||confirm("⚠️ The pastila link will render as html, which may be unsafe. Press Cancel to view as plain text.")) {
+        if (hasHashOption('sandbox')) {
+            showSandboxedHtml(content);
+        } else if (document.documentURI.indexOf("96d540560fc9de34f2bf24d5c2b9d62a.html") > 0 ||confirm("⚠️ The pastila link will render as html, which may be unsafe. Press Cancel to view as plain text.")) {
             document.open();
             document.write(content);
             document.close();
