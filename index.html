@@ -125,23 +125,34 @@
             width: min(50vw, 50vh);
         }
 
-        .terminal, .terminal pre {
+        .terminal, .terminal pre, .patch, .patch pre {
             margin: 0;
             height: 100vh;
             box-sizing: border-box;
         }
 
-        .terminal {
-            background: #000;
+        .terminal, .patch {
             overflow: auto;
         }
 
-        .terminal pre {
+        .terminal pre, .patch pre {
             padding: 0.5em;
-            color: #e5e5e5;
             white-space: pre-wrap;
             word-break: break-word;
         }
+
+        .terminal {
+            background: #000;
+        }
+
+        .terminal pre {
+            color: #e5e5e5;
+        }
+
+        .patch .file { font-weight: bold; }
+        .patch .hunk { color: #0087af; }
+        .patch .add { color: #008000; }
+        .patch .del { color: #b00000; }
 
         @media (prefers-color-scheme: dark) {
             body, textarea {
@@ -151,6 +162,9 @@
             #panel {
                 background-color: #033;
             }
+            .patch .hunk { color: #5cf; }
+            .patch .add { color: #4c4; }
+            .patch .del { color: #f55; }
         }
     </style>
 </head>
@@ -344,12 +358,14 @@ async function gunzip(bytes, limit) {
     return result;
 }
 
+function escapeHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 /// Renders ANSI/VT100 escape sequences (colors, styles) as HTML, for the `.terminal` extension.
 /// Only SGR (`...m`) sequences affect output; other CSI/OSC sequences (cursor movement, clear
 /// screen, window title, etc.) are recognized and stripped rather than shown as garbage.
 function ansiToHtml(text) {
-    const escapeHtml = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
     /// Logs copied from `less` (without -R) or `cat -v` carry ESC as the literal two characters
     /// "^[". Decode that back, but only when the paste as a whole looks caret-encoded (no real
     /// ESC bytes and at least one caret-form SGR), so prose merely containing "^[" is untouched.
@@ -618,6 +634,9 @@ async function load(fingerprint, hash, type, compressed) {
     } else if (type === '.terminal') {
         document.body.className = 'terminal';
         document.body.innerHTML = `<pre>${ansiToHtml(content)}</pre>`;
+    } else if (type === '.patch' || type === '.diff') {
+        document.body.className = 'patch';
+        document.body.innerHTML = `<pre>${patchToHtml(content)}</pre>`;
     } else {
         if (prev_hash == '00000000000000000000000000000000') {
             hide();
@@ -715,6 +734,48 @@ function loadMarkdownRenderer() {
 function loadQRRenderer() {
     return loadJS('https://cdnjs.cloudflare.com/ajax/libs/qrcode/1.5.1/qrcode.min.js',
         'sha512-PEhlWBZBrQL7flpJPY8lXx8tIN7HWX912GzGhFTDqA3iWFrakVH3lVHomCoU9BhfKzgxfEk6EG2C3xej+9srOQ==');
+}
+
+/// Renders a unified diff as HTML, for the `.patch`/`.diff` extensions. Only lines inside a hunk
+/// (as delimited by the `@@` line counts) are colored, so commit messages, diffstat, and the
+/// `-- ` mail signature of `git format-patch` output are left alone even if they start with +/-.
+/// Combined diffs of merge commits ("@@@ -a,b -c,d +e,f @@@") carry one prefix column per parent.
+function patchToHtml(text) {
+    const file_header = /^(diff |index [0-9a-f]|--- |\+\+\+ |Index: |={4,}$|(old|new|deleted file|new file) mode |similarity index |dissimilarity index |rename (from|to) |copy (from|to) |Binary files )/;
+
+    /// Lines remaining in the current hunk: one counter per parent, the result last.
+    let left = [];
+    return text.split('\n').map(line => {
+        let cls;
+        const hunk = line.match(/^(@{2,}) ((?:-\d+(?:,\d+)? )+)\+\d+(?:,(\d+))? \1/);
+        if (hunk) {
+            const counts = [...hunk[2].matchAll(/-\d+(?:,(\d+))? /g)].map(m => m[1]);
+            counts.push(hunk[3]);
+            left = counts.map(c => c === undefined ? 1 : +c);
+            cls = 'hunk';
+        } else if (left.some(n => n > 0)) {
+            const parents = left.length - 1;
+            const prefix = line.slice(0, parents).padEnd(parents);
+            if (line[0] !== '\\') {
+                for (let i = 0; i < parents; ++i) {
+                    if (prefix[i] !== '+') {
+                        --left[i];
+                    }
+                }
+                if (!prefix.includes('-')) {
+                    --left[parents];
+                }
+                if (prefix.includes('+')) {
+                    cls = 'add';
+                } else if (prefix.includes('-')) {
+                    cls = 'del';
+                }
+            }
+        } else if (file_header.test(line)) {
+            cls = 'file';
+        }
+        return cls ? `<span class="${cls}">${escapeHtml(line)}</span>` : escapeHtml(line);
+    }).join('\n');
 }
 
 /// The Claude session viewer lives on a separate, isolated page (session.html)
@@ -847,7 +908,7 @@ back.addEventListener('click', (event) => {
 });
 
 function restore() {
-    const components = location.search.match(/^\?([0-9a-f]{8})\/([0-9a-f]{32})(\.md|\.markdown|\.html?|\.link|\.png|\.claude\.jsonl|\.terminal)?(\.gz)?/);
+    const components = location.search.match(/^\?([0-9a-f]{8})\/([0-9a-f]{32})(\.md|\.markdown|\.html?|\.link|\.png|\.claude\.jsonl|\.terminal|\.patch|\.diff)?(\.gz)?/);
     if (components) load(components[1], components[2], components[3], components[4] === '.gz');
 }
 
