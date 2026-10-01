@@ -28,6 +28,8 @@ Features:
 - you can host terminal output with colors - just add `.terminal` to the URL before the `#` anchor and share it;
   ANSI/VT100 escape sequences (colors, bold, underline, etc.) are rendered on a black background like a real terminal;
   this also works for logs copied from `less` or `cat -v`, where ESC appears as literal `^[`;
+- you can host patches - just add `.patch` (or `.diff`) to the URL before the `#` anchor and share it;
+  unified diffs (`git diff`, `git format-patch`, `diff -u`) are colored like in a terminal;
 - browser history is used while editing for easy undo;
 - edit history is also saved in the database: after you load the data,
   previous version of the data is available by clicking the "back" button in bottom right corner;
