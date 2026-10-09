@@ -15,6 +15,16 @@
             box-sizing: border-box;
         }
 
+        .render-prompt {
+            border: 1px solid #c00;
+            background: #ffc;
+            padding: 1em 1.5em;
+        }
+
+        .render-prompt button {
+            margin-right: 0.5em;
+        }
+
         .public-warning {
             background: #ffc;
             color: #c00;
@@ -511,6 +521,35 @@ function showSandboxedHtml(content) {
     hide();
 }
 
+/// Asks whether to render the paste or to show it as plain text. Not with confirm(), because browsers
+/// dismiss it without asking if the page is not in the foreground, e.g. when a link is opened in a new tab.
+function askToRender(message) {
+    return new Promise(resolve => {
+        const dialog = document.createElement('dialog');
+        dialog.className = 'render-prompt';
+        const form = document.createElement('form');
+        form.method = 'dialog';
+        const text = document.createElement('p');
+        text.textContent = message;
+        const render = document.createElement('button');
+        render.value = 'render';
+        render.textContent = 'Render';
+        const plain = document.createElement('button');
+        plain.value = 'plain';
+        plain.textContent = 'View as plain text';
+        form.append(text, render, plain);
+        dialog.append(form);
+        /// Closing with Escape leaves returnValue empty, which is the same as plain text.
+        dialog.addEventListener('close', () => {
+            dialog.remove();
+            resolve(dialog.returnValue === 'render');
+        });
+        document.body.append(dialog);
+        dialog.showModal();
+        render.focus();
+    });
+}
+
 async function load(fingerprint, hash, type, compressed) {
     show(wait);
 
@@ -586,19 +625,31 @@ async function load(fingerprint, hash, type, compressed) {
     // Set the content in any case (even if rendering as HTML/MD/QR, we fall back to plaintext view anyway).
     document.getElementById('data').value = content;
 
+    function showStatus() {
+        if (prev_hash == '00000000000000000000000000000000') {
+            hide();
+        } else {
+            show(is_encrypted ? check : back);
+        }
+    }
+
     if (type === '.html' || type == '.htm') {
         if (hasHashOption('sandbox')) {
             showSandboxedHtml(content);
-        } else if (document.documentURI.indexOf("96d540560fc9de34f2bf24d5c2b9d62a.html") > 0 ||confirm("⚠️ The pastila link will render as html, which may be unsafe. Press Cancel to view as plain text.")) {
+        } else if (document.documentURI.indexOf("96d540560fc9de34f2bf24d5c2b9d62a.html") > 0 || await askToRender("⚠️ The pastila link will render as html, which may be unsafe.")) {
             document.open();
             document.write(content);
             document.close();
-        } 
+        } else {
+            showStatus();
+        }
     } else if (type === '.md' || type === '.markdown') {
-        if (confirm("⚠️ The pastila link will render as markdown, which may be unsafe. Press Cancel to view as plain text.")) {
+        if (await askToRender("⚠️ The pastila link will render as markdown, which may be unsafe.")) {
             await loadMarkdownRenderer();
             document.body.className = 'markdown';
             document.body.innerHTML = marked.parse(content);
+        } else {
+            showStatus();
         }
     } else if (type === '.link') {
         location.href = content;
@@ -619,11 +670,7 @@ async function load(fingerprint, hash, type, compressed) {
         document.body.className = 'terminal';
         document.body.innerHTML = `<pre>${ansiToHtml(content)}</pre>`;
     } else {
-        if (prev_hash == '00000000000000000000000000000000') {
-            hide();
-        } else {
-            show(is_encrypted ? check : back);
-        }
+        showStatus();
     }
 
     setFavicon();
